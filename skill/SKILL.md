@@ -36,7 +36,7 @@ Probe first when the user wants to see what is available, or when you will
 fetch more than once from the same post:
 
 ```bash
-mfp probe https://www.instagram.com/p/EXAMPLEshort/ --json
+mfp probe https://www.instagram.com/p/SHORTCODE/ --json
 ```
 
 Then fetch from the manifest the probe produced, which costs no second read
@@ -50,7 +50,7 @@ When the user just wants the file and there is nothing to choose, one call
 does both:
 
 ```bash
-mfp fetch https://www.instagram.com/p/EXAMPLEshort/ --json
+mfp fetch https://www.instagram.com/p/SHORTCODE/ --json
 ```
 
 Useful flags, all optional:
