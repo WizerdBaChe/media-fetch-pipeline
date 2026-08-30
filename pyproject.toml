@@ -1,0 +1,80 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "media-fetch-pipeline"
+version = "0.1.0"
+description = "Local media fetch pipeline: quality policy, fetch budget governor, naming/organizer, platform adapters."
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2",
+    "httpx>=0.27",
+    "websockets>=13",
+    # `mfp serve` (PSM Batch 2 §2). Loopback-only, unauthenticated by design
+    # (O-3) -- see docs/psm-batch2-gui.md before exposing it anywhere else.
+    "fastapi>=0.115",
+    "uvicorn>=0.34",
+    # `mfp stack`. The whole stacked-image path is ffmpeg for frames and
+    # Pillow for pixels -- no OCR, no OpenCV, no numpy. That was measured,
+    # not assumed (docs/spike-03, docs/spike-04), and it is why this line
+    # adds ~3 MB to the packaged sidecar instead of ~150 MB.
+    "pillow>=10",
+    # `mfp correct`. Readings for the phonetic tier: 機板 and 基板 are the same
+    # syllables, and that is the only thing that can tell them apart without
+    # asking the user. Approved once before for the D-115 MEASUREMENT and
+    # uninstalled again when that design was refuted; it enters the product
+    # now because E1 measured the gate that makes the tier safe
+    # (docs/spike-06-post-correction.md). 840 KB as a wheel, 3.6 MB unpacked
+    # -- almost all of it the reading tables, which are the point. Ships its
+    # own PyInstaller hook. Optional at RUNTIME as well: without it the
+    # corrector still does exact matches, which is the tier the user's own
+    # enrolments feed, and `pinyin_available()` is what the UI reports.
+    "pypinyin>=0.53",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+]
+
+[project.scripts]
+mfp = "mfp.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# `tests/conformance` is a second RUNNER, not part of this suite -- the same
+# separation the Playwright geometry tests have, and for the same reason
+# (D-84). It needs the external speech engine, a 3 GB model and synthesized
+# audio, so a default run that collected it would either take twenty seconds
+# of GPU time on every `pytest -q` or skip eight tests forever and teach
+# people that skips are normal. Run it deliberately:
+#
+#     .venv/Scripts/python.exe -m pytest tests/conformance
+#
+# It is the ONLY layer that can catch content deletion (P-50), so "not in the
+# default suite" must never become "not run before a release".
+addopts = "--ignore=tests/conformance"
+
+[tool.coverage.run]
+source = ["src/mfp"]
+# `src/mfp/adapters/*` was omitted here while that package held nothing but
+# the PlatformAdapter ABC, which was reasonable. It stopped being reasonable
+# the moment M2/M3 landed chrome.py, cdp.py, extract.py, ytdlp.py and
+# adapter.py inside it: the reported number went on saying 98% while a third
+# of the newest code was not being measured at all. Same shape as P-4/P-6 --
+# a green figure over something it does not look at.
+omit = []
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    # An abstract method's body is a contract, not code that runs.
+    "^\\s*\\.\\.\\.$",
+    "@abstractmethod",
+    "if TYPE_CHECKING:",
+]

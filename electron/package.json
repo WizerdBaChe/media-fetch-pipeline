@@ -1,0 +1,75 @@
+{
+  "name": "mfp-desktop",
+  "productName": "媒體擷取",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Desktop shell for media-fetch-pipeline",
+  "author": "media-fetch-pipeline",
+  "type": "module",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "npm run build && electron .",
+    "dev": "concurrently -k \"tsc -p tsconfig.build.json --watch --preserveWatchOutput\" \"wait-on http://127.0.0.1:5173 dist-electron/main.js && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "package:win": "npm run build && electron-builder --win",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run test"
+  },
+  "devDependencies": {
+    "@types/node": "26.2.0",
+    "concurrently": "10.0.5",
+    "cross-env": "10.1.0",
+    "electron": "43.4.0",
+    "electron-builder": "26.15.3",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10",
+    "wait-on": "9.1.0"
+  },
+  "build": {
+    "appId": "com.gunda.mediafetchpipeline",
+    "productName": "媒體擷取",
+    "asar": true,
+    "directories": {
+      "output": "../release/windows",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../release/sidecar",
+        "to": "sidecar"
+      },
+      {
+        "from": "../gui/dist",
+        "to": "gui"
+      },
+      {
+        "from": "../deps.lock.json",
+        "to": "deps.lock.json"
+      }
+    ],
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        "portable",
+        "nsis"
+      ]
+    },
+    "portable": {
+      "artifactName": "media-fetch-pipeline-${version}-portable.${ext}"
+    },
+    "nsis": {
+      "artifactName": "media-fetch-pipeline-${version}-setup.${ext}",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "媒體擷取"
+    }
+  }
+}

@@ -1,0 +1,134 @@
+/**
+ * 延伸工具: the first of the two levels, and the place later tools land.
+ *
+ * The name is a decision, not a default. 「擴充功能」 reads as something
+ * installed from outside and collides with 「擴充設定」 -- settings FOR
+ * extensions -- which is a different idea again. 「工具」 says these are
+ * things that DO something to a video, which separates them from 設定
+ * without further explanation.
+ *
+ * Two doors, one menu. From the header it asks for a source; from a queue
+ * row it already has one. Everything below the menu is the tool's own.
+ *
+ * A FEATURE, not a widget. It composes nothing -- no entity, no store, no
+ * request -- it is one action a person takes plus the list of tools they can
+ * take it on, which is what `features/` is for. Sitting in `widgets/` is
+ * what made `QueueTable` import it sideways, and a widget importing a widget
+ * is the one thing FSD's layering actually forbids. From here both callers
+ * reach DOWN a layer and the import graph stays a tree.
+ */
+
+import { useEffect, useRef, useState } from "react";
+
+export interface ExtensionDef {
+  id: string;
+  label: string;
+  hint: string;
+}
+
+export const EXTENSIONS: readonly ExtensionDef[] = [
+  {
+    id: "quotestack",
+    label: "引用長圖",
+    hint: "把影片與字幕疊成一張可以直接貼出去的長圖",
+  },
+  {
+    id: "transcript",
+    label: "逐字稿",
+    hint: "影片字幕或本機音檔（mp3／m4a／mp4…）都能轉成文字，選幾行就能做成引用長圖",
+  },
+  {
+    id: "translatedoc",
+    label: "文件翻譯",
+    hint: "把 .txt／.md 文件翻成另一種語言，程式碼、表格和連結原樣保留",
+  },
+];
+
+export interface ExtensionMenuProps {
+  /** What the button says. The row version is an icon-sized label. */
+  label?: string;
+  compact?: boolean;
+  /** Why this menu can do nothing here, when it can do nothing. */
+  disabledReason?: string;
+  /**
+   * `id -> why this ONE tool cannot be used here`. Rendered disabled with
+   * the reason as its title rather than hidden: a control that appears and
+   * disappears teaches nobody where it lives (D-80).
+   *
+   * Per instance rather than a field on `ExtensionDef`, because
+   * applicability is a fact about the DOOR and not about the tool -- 文件翻譯
+   * takes a `.txt` the user names, so it is offered from the header and not
+   * from a queue row, which only ever knows about a downloaded video. A
+   * field on the definition could not say something different in the two
+   * places it is read.
+   */
+  unavailable?: Readonly<Record<string, string>>;
+  onPick: (id: string) => void;
+}
+
+export function ExtensionMenu({
+  label = "延伸工具",
+  compact = false,
+  disabledReason,
+  unavailable,
+  onPick,
+}: ExtensionMenuProps) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement | null>(null);
+
+  // Close on an outside click or Escape. A popover that only closes by
+  // choosing something is a popover people learn to avoid opening.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (event: MouseEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className="mfp-ext" ref={root}>
+      <button
+        type="button"
+        className={compact ? "mfp-ext__button mfp-ext__button--compact" : "mfp-ext__button"}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={Boolean(disabledReason)}
+        title={disabledReason ?? "對這支影片使用延伸工具"}
+        onClick={() => setOpen((was) => !was)}
+      >
+        {label}
+      </button>
+
+      {open && (
+        <ul className="mfp-ext__menu" role="menu" data-testid="extension-menu">
+          {EXTENSIONS.map((tool) => (
+            <li key={tool.id} role="none">
+              <button
+                type="button"
+                role="menuitem"
+                disabled={Boolean(unavailable?.[tool.id])}
+                title={unavailable?.[tool.id]}
+                onClick={() => {
+                  setOpen(false);
+                  onPick(tool.id);
+                }}
+              >
+                <strong>{tool.label}</strong>
+                <em>{tool.hint}</em>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,2934 @@
+/* Style tokens: psm-batch1-core.md Appendix A, sourced from IG-Image-Filler.
+   Layout is a normal download manager (ruled 2026-08-12): the "downloader
+   feel" comes from information density -- monospace numeric columns, compact
+   rows, state tabs, a persistent bottom status bar -- not from decoration. */
+
+:root {
+  --ink: #1a1a1a;
+  --ink-muted: #6b6b6b;
+  --ink-faint: #c4c4c4;
+  --surface: #f7f5f2;
+  --card-bg: #fff;
+  --border: #e2e0dc;
+  --accent: #d4621a;
+  --accent-light: #fdf0e8;
+  --ok: #22c55e;
+  --ok-bg: #dcfce7;
+  --ok-ink: #166534;
+  --danger: #dc2626;
+  --danger-soft: #fca5a5;
+  --warn: #b45309;
+  --warn-bg: #fef3c7;
+  --radius: 6px;
+  --font-body: "DM Sans", "Inter", system-ui, sans-serif;
+  --font-mono: "DM Mono", "Fira Mono", ui-monospace, monospace;
+  --row-height: 34px;
+  /* Where a settings row's NAME column ends, for every category of 設定.
+
+     A token because it was four numbers: `.mfp-settings__row` said 10rem and
+     語音辨識與翻譯 -- the one category built as a status readout rather than a
+     form -- grew its own blocks, each picking a label width by eye (7.5rem
+     twice, 10rem once). Switching to it moved every label 40px left, which is
+     half of what the 2026-08-31 report calls 「畫面跳動」. There was nothing to
+     share: `.mfp-settings__row` is a class, not a row PRIMITIVE, so a new
+     block could only copy it or guess. The value column is deliberately NOT
+     in here -- a form row caps its control at 22rem and a status row lets its
+     value run, and those are different rows. What the eye reads down is the
+     left edge, and that is the one thing they now cannot disagree about. */
+  --settings-label: 10rem;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.mfp-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.mfp-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* --- shell ------------------------------------------------------------- */
+
+/* Two rows: the working area, and the status bar.
+
+   A GRID rather than a column of flex items, so 設定 can occupy the same cell
+   as the working surface without either knowing the other's height. The status
+   bar keeps its own row and is never covered -- it is the only line no view
+   owns, and it is where a background transfer reports itself. */
+.mfp-app {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  height: 100vh;
+}
+
+/* `grid-area: 1 / 1`, not `grid-row: 1`. With the row alone, auto-placement
+   gives the two row-1 items DIFFERENT columns -- the grid grows an implicit
+   second column and they sit side by side instead of stacking. Measured
+   2026-08-30: the settings mode came out 81px wide inside a 1280px window,
+   and the vertical-only coverage assertion passed on it. */
+.mfp-app__surface {
+  grid-area: 1 / 1;
+  display: flex;
+  flex-direction: column;
+  /* Without this the row cannot shrink below its content and `.mfp-main`'s
+     own scrolling never engages. */
+  min-height: 0;
+}
+
+/* 設定, in the same cell, on top. Opaque rather than a dimmed backdrop: this
+   is a MODE, and a translucent one reads as a dialog you are about to dismiss
+   rather than as a place you are currently in. */
+.mfp-settings-mode {
+  grid-area: 1 / 1;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  /* The gutter is reserved whether or not this is scrolling, so switching
+     category cannot move the page sideways.
+
+     語音辨識與翻譯 is the only category tall enough to scroll -- measured
+     2026-08-31 at 1233px against a 729px viewport, every other category 729
+     exactly -- so selecting it made a scrollbar appear, took 15px off the
+     content box, and re-centred `__body`'s `margin: 0 auto` 7.5px to the left.
+     Everything on the page, the category list included, moved. `both-edges`
+     rather than plain `stable`: this body is CENTRED, and reserving one side
+     only would leave it permanently off-centre instead of moving.
+
+     Not observable in this project's own gate, said out loud because that
+     matters more than the fix: Playwright's Chromium draws OVERLAY scrollbars
+     -- measured 2026-08-31 at 0px, with `--disable-features=OverlayScrollbar`
+     as well -- so a browser test cannot see the shift, and no assertion in
+     e2e/ would have failed. What it CAN check is that this declaration is
+     here (`settings-mode.spec.ts`), and the shift itself is a manual item. */
+  scrollbar-gutter: stable both-edges;
+  background: var(--surface);
+}
+
+.mfp-settings-mode:focus-visible {
+  outline: none;
+}
+
+.mfp-settings-mode__body {
+  width: min(1100px, 100%);
+  margin: 0 auto;
+  padding: 16px 20px 28px;
+}
+
+/* Everything above the table is chrome and shares the warm paper tone; the
+   table itself is the white content surface. The header used to be pure
+   white with a warm input inside it -- the one white block in a warm shell,
+   which is why it read as belonging to a different design (R7-3). */
+.mfp-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.mfp-header__title {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  line-height: var(--row-height);
+}
+
+/* The single accent mark in the chrome. One is enough to tie the header to
+   the orange used by the active tab, the progress bar and the primary
+   button; more would be decoration. */
+.mfp-header__title::before {
+  content: "";
+  width: 3px;
+  height: 15px;
+  background: var(--accent);
+  border-radius: 2px;
+}
+
+.mfp-add {
+  position: relative; /* the note below is positioned against this */
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+.mfp-add__row {
+  display: flex;
+  gap: 8px;
+  /* stretch, not flex-start: the button matches the input's height instead
+     of floating at the top of a taller box. */
+  align-items: stretch;
+}
+
+/* Fixed height, no drag handle. A resizable input invites the user to fix a
+   layout problem by hand; a paste box that grows with its content pushes the
+   whole page down while typing. Long input scrolls inside instead, and
+   multi-result pastes open the confirmation dialog (features/add-urls).
+
+   One row tall, not two: two rows made the whole header half again as deep
+   for a box that holds a single line in the overwhelmingly common case
+   (R7-5). Multi-line paste still works -- it scrolls. */
+.mfp-add__input {
+  flex: 1;
+  height: var(--row-height);
+  padding: 7px 8px;
+  overflow-y: auto;
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  resize: none;
+}
+
+.mfp-add__input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* A floating hint, not a reserved line.
+
+   Reserving 15px kept the layout perfectly still, and the price was a blank
+   quarter of the header standing there almost all of the time: 8 + 34 + 2 +
+   15 + 8 + 1 = 68px, of which 17 were an empty paragraph (U-4, 2026-08-16).
+   Taken out of flow instead, so showing or clearing it still moves nothing
+   AND it costs nothing when there is nothing to say. Header: 68px -> 51px.
+
+   Right-aligned deliberately. The hint overhangs the tab bar below by about
+   19px, and the tabs sit on the LEFT, so it floats over empty background
+   rather than over a label. `pointer-events: none` on top of that: a
+   transient hint must never be the reason a click misses its target.
+
+   Still one line, still ellipsised -- a hint that wraps to three lines is a
+   dialog wearing a disguise, and multi-result pastes already have a real one.
+
+   `:empty` rather than conditional rendering, so the live region stays
+   mounted; a status region that appears at the same moment as its text is
+   frequently missed by screen readers. Out of flow, an empty one costs
+   nothing to keep. */
+.mfp-add__note {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 5;
+  width: max-content;
+  max-width: 100%;
+  margin: 0;
+  padding: 4px 9px;
+  font-size: 11.5px;
+  line-height: 15px;
+  color: var(--ink-muted);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 13%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.mfp-add__note:empty {
+  opacity: 0;
+  transform: translateY(-3px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mfp-add__note {
+    transition: none;
+  }
+}
+
+.mfp-main {
+  flex: 1;
+  overflow: auto;
+  background: var(--card-bg);
+}
+
+/* --- banners & report -------------------------------------------------- */
+
+.mfp-banner {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 14px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mfp-banner--warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+.mfp-banner--error {
+  background: #fee2e2;
+  color: var(--danger);
+}
+
+.mfp-banner--info {
+  background: var(--accent-light);
+  color: var(--ink);
+}
+
+/* --- parse preview dialog ---------------------------------------------- */
+
+.mfp-modal--preview {
+  width: min(560px, 94vw);
+}
+
+.mfp-preview__changes {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  font-size: 12.5px;
+  color: var(--ink-muted);
+}
+
+/* The list scrolls, so 2 results and 200 produce the same outer layout. */
+.mfp-preview__list {
+  max-height: 40vh;
+  margin: 0;
+  padding: 0 0 0 4px;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.mfp-preview__item {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mfp-preview__item:last-child {
+  border-bottom: 0;
+}
+
+.mfp-preview__platform {
+  flex: 0 0 32px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+
+.mfp-preview__id {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mfp-preview__unrecognized {
+  margin-top: 10px;
+  padding: 6px 8px;
+  font-size: 12px;
+  background: var(--warn-bg);
+  border-radius: var(--radius);
+}
+
+.mfp-preview__unrecognized-title {
+  margin: 0 0 4px;
+  color: var(--warn);
+}
+
+.mfp-preview__unrecognized ul {
+  max-height: 20vh;
+  margin: 0;
+  padding-left: 18px;
+  overflow-y: auto;
+  word-break: break-all;
+}
+
+/* Blocked links. Same warn treatment as unrecognized -- both are "this did
+   not make it into the queue" -- but each row carries a reason and an action
+   on their own lines, because the user can actually fix this one. */
+.mfp-preview__blocked {
+  margin-top: 10px;
+  padding: 6px 8px;
+  font-size: 12px;
+  background: var(--warn-bg);
+  border-radius: var(--radius);
+}
+
+.mfp-preview__blocked-title {
+  margin: 0 0 4px;
+  color: var(--warn);
+}
+
+.mfp-preview__blocked ul {
+  max-height: 22vh;
+  margin: 0;
+  padding-left: 18px;
+  overflow-y: auto;
+  word-break: break-all;
+}
+
+.mfp-preview__blocked li {
+  margin-bottom: 6px;
+}
+
+.mfp-preview__blocked-why,
+.mfp-preview__blocked-action {
+  display: block;
+  word-break: break-word;
+}
+
+.mfp-preview__blocked-why {
+  color: var(--warn);
+}
+
+.mfp-preview__blocked-action {
+  color: var(--ink-muted);
+}
+
+/* --- info popover ------------------------------------------------------ */
+
+.mfp-info {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.mfp-info__trigger {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--ink-muted);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.mfp-info__trigger:hover,
+.mfp-info__trigger[aria-expanded="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Anchored to the trigger and out of flow, so opening it never reflows the
+   paste row. Right-aligned because the trigger sits at the end of that row
+   and a left-anchored panel would run off the window. */
+.mfp-info__panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  width: min(420px, 80vw);
+  max-height: 60vh;
+  padding: 10px 12px;
+  overflow-y: auto;
+  font-size: 12px;
+  text-align: left;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 12%);
+}
+
+.mfp-info__heading {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.mfp-info__heading + .mfp-info__list {
+  margin-bottom: 10px;
+}
+
+.mfp-info__list {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.mfp-info__list--plain li {
+  margin-bottom: 4px;
+  padding-left: 12px;
+  text-indent: -12px;
+  color: var(--ink-muted);
+}
+
+.mfp-info__list--plain li::before {
+  content: "· ";
+}
+
+.mfp-info__list li {
+  margin-bottom: 5px;
+  word-break: break-word;
+}
+
+.mfp-info__name {
+  margin-right: 6px;
+  font-weight: 600;
+}
+
+.mfp-info__shapes {
+  color: var(--ink-muted);
+}
+
+.mfp-info__via {
+  display: block;
+  color: var(--ink-faint);
+}
+
+.mfp-info__note {
+  margin: 0;
+  padding-top: 8px;
+  color: var(--ink-muted);
+  border-top: 1px solid var(--border);
+}
+
+/* --- tabs -------------------------------------------------------------- */
+
+.mfp-tabs {
+  display: flex;
+  gap: 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.mfp-tabs__tab {
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink-muted);
+  cursor: pointer;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+}
+
+.mfp-tabs__tab[data-state="active"] {
+  color: var(--ink);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+
+.mfp-tabs__count {
+  margin-left: 4px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+
+/* --- toolbar ----------------------------------------------------------- */
+
+.mfp-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.mfp-toolbar__group {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.mfp-toolbar__spacer {
+  flex: 1;
+}
+
+/* The bulk buttons act on the selection, and the checkbox that produces it
+   now lives in the table header, so the count says so here. */
+.mfp-toolbar__count {
+  font-size: 12.5px;
+  color: var(--ink-muted);
+}
+
+.mfp-field {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+
+.mfp-select {
+  padding: 3px 6px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+/* No left margin: this select is the first thing in the 畫質 cell, and the
+   6px it used to carry was separating it from the item count back when the
+   two shared one cell (UAT item 5-6). Left behind, it pushed the control 6px
+   right of its own header -- small enough that three acceptance rounds read
+   past it, and the first thing the geometry test found. The cell's padding is
+   what sets the gap; 「已自訂」/「跟隨全域」 keep their own margin on the
+   other side. */
+.mfp-select--inline {
+  max-width: 130px;
+  font-size: 11.5px;
+}
+
+/* --- buttons ----------------------------------------------------------- */
+
+.mfp-button {
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--ink);
+  white-space: nowrap;
+  cursor: pointer;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.mfp-button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.mfp-button:disabled {
+  color: var(--ink-faint);
+  cursor: not-allowed;
+  background: var(--surface);
+}
+
+.mfp-button--primary {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.mfp-button--primary:disabled {
+  color: var(--ink-faint);
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+.mfp-button--danger {
+  color: var(--danger);
+  border-color: var(--danger-soft);
+}
+
+.mfp-button--ghost {
+  background: none;
+  border-color: transparent;
+}
+
+/* --- table ------------------------------------------------------------- */
+
+/* `fixed` is what makes the header and the body share one grid: without it
+   each column is sized from its own content, so a number growing a digit
+   nudges its column and the header label drifts off the values beneath it
+   (R7-2, R7-5). The widths live on <colgroup> in QueueTable. */
+/* The box the layout decision is measured on. Plain and full-width, so it
+   reports the SPACE the table has rather than the width the table took --
+   in the full layout a table can be wider than its container, and measuring
+   that would feed the overflow back into the choice that caused it. */
+.mfp-table-fit {
+  width: 100%;
+}
+
+.mfp-table {
+  width: 100%;
+  font-size: 13px;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+/* Column widths live in QUEUE_COLUMNS (entities/task/model/columns.ts), on
+   the <col> elements, beside the measurement that justifies each number. */
+
+.mfp-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 6px 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.mfp-table__check {
+  /* Same padding as the body cell so the two checkboxes line up vertically. */
+  padding-right: 0;
+  padding-left: 8px;
+}
+
+/* ONE declaration per alignment, keyed on an attribute that the header cell
+   and its body cells both get from the same QUEUE_COLUMNS entry. Alignment
+   used to be written on the `th` and, separately or not at all, on the `td`;
+   every drift between the two halves -- 進度/速度/剩餘 in R7-5, 操作 sitting
+   229px right of the buttons it labelled on 2026-08-23 -- was a rule written
+   on one side and missing on the other. There is no longer a side to miss.
+
+   Element-qualified so it beats `.mfp-row td` and the per-cell classes, which
+   is the specificity trap that silently lost the R7-5 rule. */
+.mfp-table th[data-align="left"],
+.mfp-table td[data-align="left"] {
+  text-align: left;
+}
+
+.mfp-table th[data-align="right"],
+.mfp-table td[data-align="right"] {
+  text-align: right;
+}
+
+.mfp-row td {
+  height: var(--row-height);
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mfp-row:hover td {
+  background: var(--accent-light);
+}
+
+.mfp-row__platform {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-muted);
+}
+
+/* Two flex children, not one ellipsis context. When the whole cell truncated
+   as a unit, a long author name pushed the 資料夾名稱已縮短 note past the
+   ellipsis and the row looked like it carried no note at all -- which is
+   exactly what R5-7 asks the tester to look for (found 2026-08-16). */
+/* The cell stays a real table-cell -- `display:flex` on a `<td>` takes it out
+   of the table formatting context, so the browser wraps it in an anonymous
+   cell and it stops sharing the row's vertical alignment. That is why this
+   column's text sat 18px above 平台 on its left and 項目 on its right
+   (measured 2026-08-23). The flex row moved inside. */
+.mfp-row__subject {
+  overflow: hidden;
+}
+
+.mfp-row__subject-inner {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  overflow: hidden;
+}
+
+.mfp-row__author {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mfp-row__note {
+  flex: 0 0 auto; /* the note never gives up its space to the author */
+  font-size: 11px;
+  color: var(--warn);
+  white-space: nowrap;
+}
+
+.mfp-row__pinned {
+  margin-left: 6px;
+  padding: 0 4px;
+  font-size: 11px;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+}
+
+.mfp-row__inherited {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.mfp-row__speed,
+.mfp-row__eta {
+  overflow: hidden;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* `ellipsis`, not a bare `hidden`: the longest error label needs 161px and
+   even the widened column gives it 128, so it WILL be cut -- and a hard cut
+   mid-word reads as if that were the whole message. The full text is on the
+   element's title. */
+.mfp-row__state {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Right-aligned as a whole (from QUEUE_COLUMNS), so the bare 「—」 of a row
+   with no measurable progress lands under the 進度 header exactly where a
+   percentage would. */
+.mfp-row__progress {
+  overflow: hidden;
+}
+
+/* Bar and percentage in one cell, the number pinned to the right edge so it
+   sits directly under the right-aligned 進度 header. */
+.mfp-progress-cell {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.mfp-progress-cell .mfp-progress {
+  flex: 1;
+  min-width: 0;
+}
+
+.mfp-row__percent {
+  flex: 0 0 auto;
+  min-width: 38px;
+  font-size: 12px;
+  text-align: right;
+}
+
+.mfp-row__items {
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.mfp-row__quality {
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.mfp-row__waiting {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--warn);
+}
+
+.mfp-row__error {
+  font-size: 12px;
+  color: var(--danger);
+}
+
+/* The success twin of `mfp-row__error`. Same size and position, so a
+   confirmation and a refusal appear in the same place and the eye does not
+   have to hunt for which one it got. */
+.mfp-row__ok {
+  font-size: 12px;
+  color: var(--ok-ink);
+  white-space: nowrap;
+}
+
+/* Two zones, by how stable their contents are (UAT item 5-6). State actions
+   pin to the left edge, output actions to the right, and the slack between
+   them is EMPTY SPACE rather than content -- so a wider label eats gap
+   instead of pushing every button after it sideways. No fixed width on
+   either zone, so nothing can clip; the invariant is the two edges. */
+.mfp-row__buttons {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.mfp-row__buttons-state {
+  display: flex;
+  flex: 0 1 auto;
+  gap: 3px;
+}
+
+.mfp-row__buttons-output {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 3px;
+  align-items: center;
+  /* The whole point: 移除 ends at the same x on every row, and the reveal
+     sits immediately to its left, so it does too. */
+  margin-left: auto;
+}
+
+.mfp-empty {
+  padding: 28px 14px;
+  color: var(--ink-muted);
+  text-align: center;
+}
+
+/* --- progress & badges ------------------------------------------------- */
+
+.mfp-progress {
+  height: 6px;
+  overflow: hidden;
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.mfp-progress__fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 120ms linear;
+}
+
+.mfp-progress--done .mfp-progress__fill {
+  background: var(--ok);
+}
+
+.mfp-progress--failed .mfp-progress__fill {
+  background: var(--danger);
+}
+
+.mfp-progress--paused .mfp-progress__fill {
+  background: var(--ink-faint);
+}
+
+/* Indeterminate: length unknown, but the bar must still look alive. */
+.mfp-progress--indeterminate .mfp-progress__fill {
+  width: 35%;
+  animation: mfp-indeterminate 1.1s ease-in-out infinite;
+}
+
+@keyframes mfp-indeterminate {
+  0% {
+    margin-left: -35%;
+  }
+  100% {
+    margin-left: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mfp-progress--indeterminate .mfp-progress__fill {
+    width: 100%;
+    animation: none;
+    opacity: 0.45;
+  }
+}
+
+.mfp-badge {
+  display: inline-block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+
+.mfp-badge--ok {
+  color: var(--ok-ink);
+}
+
+.mfp-badge--bad {
+  color: var(--danger);
+}
+
+.mfp-badge--warn {
+  color: var(--warn);
+}
+
+.mfp-badge--busy {
+  color: var(--accent);
+}
+
+/* --- status bar -------------------------------------------------------- */
+
+.mfp-status {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 5px 14px;
+  font-size: 12px;
+  color: var(--ink-muted);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+
+.mfp-status__sep {
+  color: var(--ink-faint);
+}
+
+.mfp-status__path {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mfp-status__spacer {
+  flex: 1;
+}
+
+.mfp-status__error {
+  color: var(--danger);
+}
+
+.mfp-status__stream--open {
+  color: var(--ok-ink);
+}
+
+.mfp-status__stream--closed,
+.mfp-status__stream--connecting {
+  color: var(--warn);
+}
+
+/* Not a shade of the warning colour: "stale" means the screen may be lying,
+   which is a different thing from "reconnecting" and has to look different
+   at a glance (R5-8). */
+/* --- background jobs, in the status bar -------------------------------- */
+
+.mfp-jobs {
+  position: relative;
+}
+
+.mfp-jobs__toggle {
+  font-size: 12px;
+  padding: 1px 6px;
+}
+
+.mfp-jobs__toggle[data-tone="running"] {
+  color: var(--accent);
+}
+
+.mfp-jobs__toggle[data-tone="failed"] {
+  color: var(--danger);
+}
+
+.mfp-jobs__toggle[data-tone="done"] {
+  color: var(--ok-ink);
+}
+
+/* Opens UPWARDS. This lives on the bottom edge of the window, so a panel that
+   dropped down would be drawn off-screen. */
+.mfp-jobs__panel {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 40;
+  width: min(420px, 80vw);
+  padding: 8px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 16%);
+}
+
+.mfp-jobs__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 46vh;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.mfp-jobs__list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.mfp-jobs__list li[data-phase="failed"] {
+  background: var(--warn-bg);
+}
+
+.mfp-jobs__list li > .mfp-progress {
+  grid-column: 1 / -1;
+}
+
+.mfp-jobs__label {
+  font-size: 12.5px;
+}
+
+.mfp-jobs__detail {
+  grid-column: 1 / -1;
+  font-size: 11.5px;
+  color: var(--ink-muted);
+}
+
+.mfp-jobs__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.mfp-status__stream--stale {
+  padding: 1px 7px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--danger);
+  border-radius: 3px;
+}
+
+/* --- a subtree that failed to render ------------------------------------ */
+
+/* Warm, not alarm-red. This is a report about ONE part of the screen while the
+   rest keeps working, and painting it like a fatal error would say something
+   untrue about the other parts. It has to be impossible to mistake for empty
+   space, though: a blank area is exactly the failure mode it replaces. */
+.mfp-broken {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 12px;
+  padding: 14px 16px;
+  background: var(--warn-bg);
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+}
+
+.mfp-broken__what {
+  font-size: 14px;
+  color: var(--warn);
+}
+
+.mfp-broken__intact,
+.mfp-broken__why {
+  margin: 0;
+  font-size: 13px;
+}
+
+.mfp-broken__why {
+  color: var(--ink-muted);
+}
+
+/* The line to paste into a report, so it must be selectable and legible --
+   not a tooltip and not a colour-coded glyph. */
+.mfp-broken__detail {
+  align-self: stretch;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.mfp-broken__stack {
+  align-self: stretch;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.mfp-broken__stack pre {
+  max-height: 30vh;
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  overflow: auto;
+  font-size: 11.5px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+/* --- modal ------------------------------------------------------------- */
+
+.mfp-modal__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 35%);
+}
+
+.mfp-modal {
+  width: min(460px, 92vw);
+  padding: 16px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+/* Wide enough to edit a table in. The default width is sized for a
+   sentence and two buttons; the glossary editor is three inputs per row and
+   would wrap every one of them. */
+.mfp-modal--wide {
+  width: min(760px, 94vw);
+}
+
+.mfp-modal--wide .mfp-modal__body {
+  max-height: 65vh;
+  overflow-y: auto;
+}
+
+.mfp-modal__title {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.mfp-modal__body p {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.mfp-modal__warning {
+  color: var(--danger);
+}
+
+.mfp-modal__note {
+  color: var(--ink-muted);
+}
+
+.mfp-modal__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+/* --- toasts ------------------------------------------------------------ */
+
+/* A receipt, not a condition. Overlaid in the corner rather than placed in
+   the flow, so confirming a bulk removal never reflows the table the user is
+   still looking at. */
+.mfp-toasts {
+  position: fixed;
+  right: 16px;
+  bottom: 44px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+  pointer-events: none;
+}
+
+.mfp-toast {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  max-width: min(420px, 70vw);
+  padding: 8px 10px 8px 14px;
+  font-size: 13px;
+  color: var(--ink);
+  pointer-events: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 12%);
+}
+
+.mfp-toast__text {
+  flex: 1 1 auto;
+}
+
+/* --- settings + doctor (§9, G5) ------------------------------------------ */
+
+/* Every control standing in the header is exactly one row tall, so the title,
+   the paste box and the two buttons share a baseline instead of each having
+   its own.
+
+   Before this there was no rule at all for 設定: it carried a class that set
+   `margin-left` and `align-self` and not one visual property, so the browser
+   drew it -- 23px against 延伸工具's 35px and the input's 34px. The report
+   said 「一直沒修」 and that is why: there was nothing to disagree with.
+
+   Scoped to `.mfp-header` deliberately. The same ExtensionMenu renders on
+   every queue row in its `--compact` form inside a 34px row, and giving that
+   one a 34px height would make every row wrap. */
+.mfp-header > .mfp-button,
+.mfp-header .mfp-ext__button {
+  height: var(--row-height);
+  padding: 0 12px;
+}
+
+.mfp-header__settings {
+  margin-left: auto;
+}
+
+/* THREE LEVELS, out of the two tones the palette already has.
+
+   The whole panel used to be one white sheet: measured 2026-08-30, every
+   `.mfp-settings__section` had `background: rgba(0,0,0,0)` and the only thing
+   separating 2266px of settings was a 1px rule. Nothing was above or below
+   anything, so the eye had no way in -- 「一眼望過去都是平級」.
+
+   No new token was needed. The warm ground and the white card ALTERNATE with
+   nesting, so depth comes from where a thing sits rather than from a shade
+   someone has to remember:
+
+     mode background   --surface   (warm)   the ground
+     nav / page        --card-bg   (white)  raised onto it
+     group inside      --surface   (warm)   inset into that
+*/
+.mfp-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0;
+}
+
+.mfp-settings__layout {
+  display: grid;
+  grid-template-columns: 15rem minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+/* One column of categories, one panel. Below this width the two would each be
+   too narrow to read, so the list lies down above the panel instead. */
+@media (max-width: 820px) {
+  .mfp-settings__layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.mfp-settings__nav {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+  position: sticky;
+  top: 0;
+}
+
+.mfp-settings__nav ul {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mfp-settings__nav-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: 8px 10px;
+  text-align: start;
+  font: inherit;
+  color: var(--ink);
+  background: none;
+  /* A 3px transparent bar that the selected item colours in, so selecting
+     something moves no text -- a list where the current item is 3px wider
+     than the others reads as a wobble every time you change category. */
+  border: 0;
+  border-left: 3px solid transparent;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.mfp-settings__nav-item:hover {
+  background: var(--surface);
+}
+
+.mfp-settings__nav-item[data-active="true"] {
+  background: var(--accent-light);
+  border-left-color: var(--accent);
+}
+
+.mfp-settings__nav-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.mfp-settings__nav-label {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.mfp-settings__nav-item[data-active="true"] .mfp-settings__nav-label {
+  color: var(--accent);
+}
+
+.mfp-settings__nav-hint {
+  font-size: 11.5px;
+  color: var(--ink-muted);
+}
+
+.mfp-settings__page {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 20px;
+  min-height: 0;
+}
+
+/* A block of related rows, inset into the card. This is level three and the
+   reason the page no longer reads flat. */
+.mfp-settings__group {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin-top: 10px;
+}
+
+.mfp-settings__head,
+.mfp-settings__section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mfp-settings__head h2,
+.mfp-settings__section-head h3 {
+  margin: 0;
+}
+
+.mfp-settings__section {
+  border-top: 1px solid var(--border);
+  margin-top: 14px;
+  padding-top: 12px;
+}
+
+/* The first section on a page opens it, so it gets no rule above it. The
+   separator exists to divide two sections that share a page -- today only
+   診斷, which carries 不可調整 and 相依工具檢查 together. */
+.mfp-settings__page > .mfp-settings__section:first-child,
+.mfp-settings__page > *:first-child > .mfp-settings__section:first-child {
+  border-top: 0;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+/* A category title outranks a group heading, which outranks a row label. Sizes
+   rather than weights alone: at one size everything reads as a peer, which is
+   what 「都是平級」 was about. */
+.mfp-settings__section-head h3 {
+  font-size: 15px;
+}
+
+.mfp-settings__group h4 {
+  margin: 0 0 4px;
+  font-size: 13px;
+}
+
+.mfp-settings__section--readonly {
+  color: var(--ink-muted);
+}
+
+.mfp-settings__row {
+  display: grid;
+  /* First track from the token, so every category's labels start on one edge
+     (`--settings-label`). The control stays capped at 22rem -- a text field as
+     wide as the card is a field nobody can read the end of. */
+  grid-template-columns: var(--settings-label) minmax(0, 22rem);
+  align-items: center;
+  gap: 8px 12px;
+  padding: 6px 0;
+}
+
+/* The explanation sits under the control it belongs to, never beside the
+   label -- a reason placed in the label column reads as part of the name. */
+.mfp-settings__row small {
+  grid-column: 2;
+  color: var(--ink-muted);
+}
+
+.mfp-settings__row input[type="checkbox"] {
+  justify-self: start;
+}
+
+.mfp-settings__error {
+  color: var(--danger);
+  margin: 8px 0 0;
+}
+
+.mfp-settings__doctor {
+  border-collapse: collapse;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.mfp-settings__doctor th,
+.mfp-settings__doctor td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.mfp-settings__doctor tr[data-tone="ok"] td:first-of-type {
+  color: var(--ok-ink);
+}
+
+.mfp-settings__doctor tr[data-tone="warn"] td:first-of-type {
+  color: var(--warn);
+}
+
+.mfp-settings__doctor tr[data-tone="error"] td:first-of-type {
+  color: var(--danger);
+}
+
+.mfp-settings__doctor-version,
+.mfp-settings__doctor-detail {
+  color: var(--ink-muted);
+}
+
+.mfp-settings__doctor-detail {
+  font-size: 0.9em;
+}
+
+/* Two lines: what it means to the reader, then what the server literally
+   said. The second is quieter because it is for a bug report, not for a
+   decision -- but it is kept, because a derived sentence cannot say things
+   like 「Note that Java is a different thing」. */
+.mfp-settings__doctor-detail span {
+  display: block;
+}
+
+.mfp-settings__doctor-raw {
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  color: var(--ink-faint);
+}
+
+/* ==========================================================================
+   延伸工具 (extension menu) and 引用長圖 (quote-stack workspace)
+   ========================================================================== */
+
+.mfp-ext {
+  position: relative;
+}
+
+.mfp-ext__button {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  padding: 6px 12px;
+}
+
+.mfp-ext__button--compact {
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.mfp-ext__button:disabled {
+  color: var(--ink-faint);
+  cursor: not-allowed;
+}
+
+.mfp-ext__menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  min-width: 17rem;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 12%);
+}
+
+.mfp-ext__menu button {
+  display: block;
+  width: 100%;
+  text-align: start;
+  background: none;
+  border: 0;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font: inherit;
+  padding: 8px 10px;
+}
+
+.mfp-ext__menu button:hover:not(:disabled) {
+  background: var(--accent-light);
+}
+
+.mfp-ext__menu em {
+  display: block;
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-style: normal;
+}
+
+/* --- workspace ---------------------------------------------------------- */
+
+.mfp-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+.mfp-stack__header {
+  align-items: baseline;
+  display: flex;
+  gap: 12px;
+}
+
+.mfp-stack__header h2 {
+  font-size: 16px;
+  margin: 0;
+}
+
+.mfp-stack__back {
+  background: none;
+  border: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+}
+
+/* Two columns: the form is read top-down while the result stays put. On a
+   narrow window they stack, and the result goes under the form rather than
+   beside it -- a 1080-wide image in a 20rem column is not a check anybody
+   can make. */
+.mfp-stack__body {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .mfp-stack__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.mfp-stack__section {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin: 0 0 12px;
+  padding: 10px 12px 12px;
+}
+
+.mfp-stack__section legend {
+  color: var(--ink-muted);
+  font-size: 12px;
+  padding: 0 4px;
+}
+
+.mfp-stack__choice {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.mfp-stack__choice em,
+.mfp-stack__choices em {
+  display: block;
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.mfp-stack__choices {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.mfp-stack__choices button {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font: inherit;
+  margin: 4px 0;
+  padding: 6px 8px;
+  text-align: start;
+  width: 100%;
+}
+
+.mfp-stack__field {
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  gap: 4px;
+  color: var(--ink-muted);
+}
+
+.mfp-stack__field input {
+  font: inherit;
+  color: var(--ink);
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.mfp-stack__row {
+  display: flex;
+  gap: 10px;
+}
+
+.mfp-stack__source {
+  display: flex;
+  gap: 8px;
+}
+
+.mfp-stack__source input {
+  flex: 1;
+  font: inherit;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.mfp-stack__toggle {
+  display: block;
+  padding: 3px 0;
+}
+
+.mfp-stack__note,
+.mfp-stack__hint {
+  color: var(--ink-muted);
+  font-size: 12px;
+  margin: 6px 0 0;
+}
+
+/* The run button and the equivalent command stay at the bottom of the form
+   column while the sections scroll past them. With the region picker open
+   the form is taller than the window, and a 產生長圖 button that has to be
+   scrolled back to is a button people lose. */
+.mfp-stack__footer {
+  position: sticky;
+  bottom: 0;
+  background: linear-gradient(to bottom, transparent, var(--surface) 12px);
+  padding-top: 12px;
+}
+
+.mfp-stack__actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* --- 延伸工具：逐字稿 --------------------------------------------------- */
+
+.mfp-tx__head {
+  align-items: baseline;
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.mfp-tx__head h2 {
+  font-size: 15px;
+  margin: 0;
+}
+
+.mfp-tx__title {
+  color: var(--ink-muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mfp-tx__lang,
+.mfp-tx__actions {
+  align-items: flex-end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.mfp-tx__tracks,
+.mfp-tx__hint {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.mfp-tx__hint {
+  margin: 0 0 8px;
+}
+
+.mfp-tx__error {
+  color: var(--danger);
+  font-size: 12px;
+  margin: 8px 0 0;
+}
+
+/* Recognition progress. Sized and spaced exactly like the error line above
+   so the panel does not resize when one replaces the other -- they occupy
+   the same row of the layout and never appear together. */
+.mfp-tx__progress {
+  color: var(--accent);
+  font-size: 12px;
+  margin: 8px 0 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The engine's verdict on a finished transcript. Warm rather than red: the
+   transcript is usable and one passage of it is suspect, which is a
+   different message from "this failed". It sits with the transcript rather
+   than in the progress row, because it outlives the wait. */
+.mfp-tx__health {
+  background: var(--warn-bg);
+  border-left: 3px solid var(--warn);
+  border-radius: 0 4px 4px 0;
+  color: var(--warn);
+  font-size: 12px;
+  line-height: 1.6;
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 8px 10px;
+}
+
+/* One row per verdict. `note` is dimmed rather than differently coloured:
+   the two are the same KIND of message and only differ in how much they ask
+   of the reader, and a second colour would read as a second category. */
+.mfp-tx__health li + li {
+  margin-top: 4px;
+}
+
+.mfp-tx__health li[data-severity="note"] {
+  opacity: 0.78;
+}
+
+.mfp-tx__reveal {
+  background: none;
+  border: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  padding: 0 0 0 6px;
+  text-decoration: underline;
+}
+
+/* Capped and scrolled: a transcript runs to hundreds of lines, and a list
+   that pushes the footer off the page takes the 用這段做引用長圖 button --
+   the thing the reader came for -- with it. */
+.mfp-tx__lines {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  list-style: none;
+  margin: 0;
+  max-height: 52vh;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.mfp-tx__line {
+  background: none;
+  border: 0;
+  border-radius: var(--radius);
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  gap: 10px;
+  padding: 3px 6px;
+  text-align: start;
+  width: 100%;
+}
+
+.mfp-tx__line:hover {
+  background: var(--accent-light);
+}
+
+.mfp-tx__line[data-selected="true"] {
+  background: var(--accent-light);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.mfp-tx__at {
+  color: var(--ink-faint);
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  /* Fixed, so the words start on one x down the whole list rather than
+     stepping right every time a timestamp gains a digit. */
+  min-width: 44px;
+  text-align: right;
+}
+
+.mfp-tx__text {
+  flex: 1;
+  font-size: 13px;
+}
+
+.mfp-tx__footer {
+  align-items: center;
+  background: linear-gradient(to bottom, transparent, var(--surface) 12px);
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 12px;
+  position: sticky;
+}
+
+.mfp-tx__window {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.mfp-tx__warn {
+  color: var(--warn);
+  font-size: 12px;
+}
+
+.mfp-stack__run {
+  background: var(--accent);
+  border: 0;
+  border-radius: var(--radius);
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  padding: 7px 16px;
+}
+
+.mfp-stack__run:disabled {
+  background: var(--ink-faint);
+  cursor: not-allowed;
+}
+
+.mfp-stack__issues {
+  color: var(--warn);
+  font-size: 12px;
+  margin: 0;
+  padding-inline-start: 18px;
+}
+
+.mfp-stack__error {
+  color: var(--danger);
+}
+
+/* The equivalent command is the workspace's claim about itself, so it is
+   always visible and always selectable -- a line you cannot copy is a
+   demonstration, not a tool. */
+.mfp-stack__command {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-top: 12px;
+  padding: 8px 10px;
+}
+
+.mfp-stack__command span {
+  color: var(--ink-muted);
+  display: block;
+  font-size: 11px;
+}
+
+.mfp-stack__command code {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.mfp-stack__result {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  position: sticky;
+  top: 12px;
+}
+
+.mfp-stack__result--empty {
+  color: var(--ink-muted);
+}
+
+.mfp-stack__result--failed {
+  border-color: var(--danger-soft);
+}
+
+.mfp-stack__result h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+
+.mfp-stack__summary {
+  color: var(--ink-muted);
+  font-size: 12px;
+  margin: 0 0 8px;
+}
+
+/* The image is the deliverable, and it is tall. Capping the height keeps
+   the controls reachable; the scroll is inside the panel, not the page. */
+.mfp-stack__image {
+  display: block;
+  max-height: 60vh;
+  max-width: 100%;
+  object-fit: contain;
+  object-position: top;
+  border: 1px solid var(--border);
+}
+
+.mfp-stack__message {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* --- region picker ------------------------------------------------------ */
+
+.mfp-roi {
+  margin-top: 10px;
+}
+
+.mfp-roi__stage {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  touch-action: none;
+}
+
+.mfp-roi__frame {
+  display: block;
+  max-height: 48vh;
+  max-width: 100%;
+  user-select: none;
+}
+
+.mfp-roi__band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: rgb(212 98 26 / 22%);
+  border-top: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
+  pointer-events: none;
+}
+
+.mfp-roi__handle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 14px;
+  margin-top: -7px;
+  cursor: ns-resize;
+  background: transparent;
+}
+
+.mfp-roi__handle::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 6px;
+  height: 2px;
+  background: var(--accent);
+}
+
+.mfp-roi__handle:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.mfp-roi__loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(255 255 255 / 60%);
+  margin: 0;
+}
+
+.mfp-roi__controls {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.mfp-roi__readout {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.mfp-settings__buttons {
+  display: flex;
+  gap: 6px;
+  grid-column: 2;
+}
+
+.mfp-settings__flash {
+  color: var(--ok-ink);
+  font-size: 12px;
+  margin: 6px 0 0;
+}
+
+/* ==========================================================================
+   語音辨識的準備 (speech-recognition setup)
+
+   The rule this section is built on: the verdict is the only thing sized to
+   be read from across the room, and everything mechanical -- paths, format
+   versions, spec names -- is muted, small, or behind a <details>. Removing
+   those would make the panel useless the moment something went wrong; what
+   was wrong before was leading with them.
+   ========================================================================== */
+
+/* One band per kind of question. The heading is what tells a reader that the
+   green line below and the orange line above are about different KINDS of
+   thing -- without it the two share a vocabulary and read as a contradiction
+   (docs/asr-readiness-view-model.md §3). */
+.mfp-asr__band {
+  margin: 18px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.mfp-asr__band:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.mfp-asr__band-head {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Three tones, never two. `off` is an offer nobody took up and must not
+   share a colour with `blocked`, which is something that is wrong. */
+.mfp-asr__verdict {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--warn);
+  background: var(--warn-bg);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin: 10px 0;
+}
+
+.mfp-asr__verdict[data-tone="ready"] {
+  border-left-color: var(--ok);
+  background: var(--ok-bg);
+}
+
+.mfp-asr__verdict[data-tone="off"] {
+  border-left-color: var(--border);
+  background: var(--surface-2);
+}
+
+.mfp-asr__verdict strong {
+  display: block;
+  font-size: 15px;
+}
+
+.mfp-asr__verdict p {
+  margin: 4px 0 0;
+}
+
+
+.mfp-asr__steps {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.mfp-asr__steps li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* The things a person has to HAVE. One grid so the rows' names, states and
+   buttons line up -- they are the same kind of thing and reading them as a
+   set is the point. */
+/* The label column comes from `--settings-label`, the same track every other
+   category's rows use. It was 7.5rem, sized by eye for the LONGEST name
+   (「錄音的聲音狀況」, seven characters) -- which fits inside 10rem too, so the
+   only thing the local number bought was 語音辨識與翻譯's labels starting 40px
+   left of every other category's. The rest of this row is its own: a status
+   line is name / state / two buttons, and that is not a form row. */
+.mfp-asr__part {
+  display: grid;
+  grid-template-columns: var(--settings-label) minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.mfp-asr__part small,
+.mfp-asr__part-path,
+.mfp-asr__part-problem {
+  grid-column: 2 / -1;
+}
+
+/* The engine's own path, beside the engine's own verdict. It used to live in
+   技術細節 three bands away, which is how 「尚未設定」 and a real interpreter
+   path came to sit on one screen (C1). */
+.mfp-asr__part-path {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-muted);
+}
+
+.mfp-asr__part-problem {
+  font-size: 12px;
+  color: var(--warn);
+}
+
+/* The download list. One row per model, and the SIZE gets its own column so
+   it can be read down the list — choosing between 3 GB and 0.5 GB is the
+   whole decision, and a size buried in prose cannot be compared. */
+.mfp-asr__catalogue {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.mfp-asr__catalogue-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.mfp-asr__catalogue-row {
+  display: grid;
+  grid-template-columns: minmax(7rem, auto) minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 4px 0;
+}
+
+.mfp-asr__catalogue-row[data-kind="translation"] {
+  border-top: 1px dashed var(--border);
+  margin-top: 4px;
+  padding-top: 8px;
+}
+
+.mfp-asr__catalogue-name {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.mfp-asr__catalogue-row .mfp-asr__progress {
+  grid-column: 2 / -1;
+}
+
+.mfp-asr__pick {
+  font-style: normal;
+  font-size: 0.75rem;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--ok-bg, var(--surface-2));
+  color: var(--ok-ink, var(--ink));
+}
+
+.mfp-asr__audio {
+  display: grid;
+  /* Same track as `.mfp-asr__part` above it and as every 設定 row elsewhere:
+     這一列 sits directly under those, and two label edges one row apart is
+     what made the panel read as a different page. */
+  grid-template-columns: var(--settings-label) minmax(0, 1fr);
+  align-items: center;
+  gap: 6px 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.mfp-asr__audio small {
+  grid-column: 2 / -1;
+}
+
+.mfp-asr__part-name {
+  color: var(--ink-muted);
+}
+
+/* COMPONENT presence: is this thing here. Plain text with a leading mark,
+   deliberately NOT the pill the capability table uses -- these two used to
+   share `.mfp-asr__part-state[data-ok]`, so one visual symbol carried both
+   「這個東西在不在」 and 「你能不能做這件事」, and a reader had no way to tell
+   which of the two a given green or orange word meant.
+
+   The glyph is the redundancy: colour alone fails in greyscale and for the
+   ~8% of men with a red/green deficiency. */
+.mfp-asr__part-state::before {
+  margin-right: 5px;
+}
+
+.mfp-asr__part-state[data-tone="ready"] {
+  color: var(--ok-ink);
+}
+
+.mfp-asr__part-state[data-tone="ready"]::before {
+  content: "●";
+}
+
+.mfp-asr__part-state[data-tone="blocked"] {
+  color: var(--warn);
+}
+
+.mfp-asr__part-state[data-tone="blocked"]::before {
+  content: "▲";
+}
+
+.mfp-asr__part-state[data-tone="off"] {
+  color: var(--ink-muted);
+}
+
+.mfp-asr__part-state[data-tone="off"]::before {
+  content: "○";
+}
+
+/* CAPABILITY verdict: can you do this. A pill, so it never reads as the same
+   kind of statement as the component line above. */
+.mfp-asr__cap-state {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid;
+  white-space: nowrap;
+}
+
+.mfp-asr__cap-state[data-tone="ready"] {
+  color: var(--ok-ink);
+  border-color: var(--ok);
+  background: var(--ok-bg);
+}
+
+.mfp-asr__cap-state[data-tone="blocked"] {
+  color: var(--warn);
+  border-color: var(--warn);
+  background: var(--warn-bg);
+}
+
+/* An opt-in nobody took up. Muted on purpose: it is not a fault, and the
+   version of this panel that painted it orange taught readers that orange
+   means nothing in particular. */
+.mfp-asr__cap-state[data-tone="off"] {
+  color: var(--ink-muted);
+  border-color: var(--border);
+  background: var(--surface-2);
+}
+
+.mfp-asr__home-path {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mfp-asr__muted {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.mfp-asr__models {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+/* Set when a step said 「從下面的清單挑一個」. The step used to render a
+   button that opened a browse-for-a-new-folder dialog instead (C7); this is
+   the outline that makes "down there" a place rather than an instruction. */
+.mfp-asr__models[data-pointed="true"] {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: var(--radius);
+}
+
+.mfp-asr__models li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 4px 0;
+}
+
+.mfp-asr__models li label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* An unusable entry is dimmed but never hidden: a folder that looks like a
+   model and is not is exactly the thing somebody needs to be told about. */
+.mfp-asr__models li[data-usable="false"] .mfp-asr__model-name {
+  color: var(--ink-muted);
+  text-decoration: line-through;
+}
+
+.mfp-asr__model-name {
+  font-family: var(--font-mono);
+}
+
+.mfp-asr__badge {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-light);
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.mfp-asr__badge--ok {
+  background: var(--ok-bg);
+  color: var(--ok-ink);
+}
+
+/* The two model KINDS get different colours, not just different words: with
+   both installed, "which of these is which" has to survive a glance. */
+.mfp-asr__badge[data-kind="recognition"] {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.mfp-asr__badge[data-kind="translation"] {
+  background: #e8eefd;
+  color: #2d4b9a;
+}
+
+.mfp-asr__badge[data-kind="unknown"],
+.mfp-asr__badge[data-kind="warn"] {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+/* The capability table: two rows, each answering "does this work, with
+   which model, and what is it waiting for". A table rather than two cards
+   because the comparison between the rows IS the information. */
+.mfp-asr__capabilities {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 10px 0;
+}
+
+.mfp-asr__capabilities th,
+.mfp-asr__capabilities td {
+  text-align: left;
+  vertical-align: top;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mfp-asr__capabilities thead th {
+  font-size: 12px;
+  color: var(--ink-muted);
+  font-weight: 500;
+  padding-bottom: 4px;
+}
+
+.mfp-asr__capabilities tbody th,
+.mfp-asr__capabilities tbody td {
+  display: table-cell;
+}
+
+/* Each cell stacks its own value over its own explanation, so the eye can
+   read down one column or across one row and get a whole answer either way. */
+.mfp-asr__capabilities small,
+.mfp-asr__capabilities .mfp-asr__model-name {
+  display: block;
+}
+
+.mfp-asr__cap-label {
+  font-weight: 600;
+}
+
+.mfp-asr__capabilities tr[data-tone="ready"] {
+  background: color-mix(in srgb, var(--ok-bg) 35%, transparent);
+}
+
+/* A DIALOG since 2026-08-28. It keeps the accent border it had as an inline
+   block, because the border is what says 「這是剛剛那個動作的結果」 -- but the
+   card background comes from `.mfp-modal` so the two do not fight. Picking a
+   folder answered below the fold before this, and a reader who did not
+   scroll concluded the picker had done nothing. */
+.mfp-asr__scan {
+  border-color: var(--accent);
+  max-height: 78vh;
+  overflow-y: auto;
+}
+
+.mfp-asr__scan-picked {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 10px;
+  font-size: 12px;
+}
+
+.mfp-asr__scan-picked code {
+  overflow-wrap: anywhere;
+}
+
+.mfp-asr__scan-verdict {
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+
+.mfp-asr__modes {
+  border: none;
+  margin: 8px 0;
+  padding: 0;
+}
+
+.mfp-asr__modes legend {
+  padding: 0;
+  font-weight: 600;
+}
+
+.mfp-asr__modes label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 8px;
+  padding: 5px 0;
+}
+
+.mfp-asr__modes label small {
+  grid-column: 2;
+}
+
+/* A mode the disk cannot do is shown, dimmed, with its reason. Hiding it
+   would leave the user wondering whether the option exists at all. */
+.mfp-asr__modes label[data-available="false"] {
+  color: var(--ink-muted);
+}
+
+.mfp-asr__warnings {
+  margin: 6px 0;
+  padding-left: 20px;
+  color: var(--warn);
+  font-size: 12px;
+}
+
+.mfp-asr__scan-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.mfp-asr__progress {
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.mfp-asr__typed {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.mfp-asr__disclosure {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  margin-top: 10px;
+}
+
+.mfp-asr__disclosure summary {
+  cursor: pointer;
+  color: var(--ink-muted);
+}
+
+.mfp-asr__guide section {
+  margin: 14px 0;
+}
+
+.mfp-asr__guide h4 {
+  margin: 0 0 6px;
+}
+
+.mfp-asr__guide p {
+  margin: 6px 0;
+}
+
+.mfp-asr__table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0;
+  font-size: 12px;
+}
+
+.mfp-asr__table th,
+.mfp-asr__table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mfp-asr__faq dt {
+  font-weight: 600;
+  margin-top: 8px;
+}
+
+.mfp-asr__faq dd {
+  margin: 2px 0 0 16px;
+  color: var(--ink-muted);
+}
+
+.mfp-asr__links {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+
+.mfp-asr__copy {
+  display: grid;
+  grid-template-columns: 5rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px 8px;
+  margin: 6px 0;
+}
+
+.mfp-asr__copy code {
+  overflow-x: auto;
+  padding: 4px 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  white-space: nowrap;
+}
+
+.mfp-asr__copy small {
+  grid-column: 2 / -1;
+}
+
+.mfp-asr__copy-label {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.mfp-asr__tech {
+  display: grid;
+  /* Already 10rem by hand; through the token now, so it stays whatever a
+     settings row's label column becomes. */
+  grid-template-columns: var(--settings-label) minmax(0, 1fr);
+  gap: 4px 10px;
+  font-size: 12px;
+  margin: 8px 0 0;
+}
+
+.mfp-asr__tech dt {
+  color: var(--ink-muted);
+}
+
+.mfp-asr__tech dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The same card, inside 逐字稿. Toned as a notice rather than an error: it
+   is a setup step nobody has done, not a thing that broke. */
+.mfp-tx__setup {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--warn);
+  background: var(--warn-bg);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin: 10px 0 0;
+}
+
+.mfp-tx__setup strong {
+  display: block;
+}
+
+.mfp-tx__setup p {
+  margin: 4px 0 0;
+}
+
+.mfp-tx__setup-why {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.mfp-tx__setup button {
+  margin-top: 8px;
+}
+
+/* Translation, under the transcript it operates on. One row, because it is
+   one decision: which language, then go. */
+.mfp-tx__translate {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+  margin-top: 8px;
+}
+
+/* Term correction. Unlike translation this is NOT one row: the reader has to
+   review a list before anything happens, so the panel grows from a single
+   button into that list and back again. */
+.mfp-fix {
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+
+.mfp-fix__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mfp-fix__summary {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.mfp-fix__list {
+  list-style: none;
+  margin: 6px 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.mfp-fix__item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 3px 4px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.mfp-fix__item:hover {
+  background: var(--accent-light);
+}
+
+/* A guess and a spelling the user enrolled are not the same claim, and the
+   list is unreviewable if they look alike. The guess carries the marker. */
+.mfp-fix__item[data-tier="phonetic"] {
+  border-left: 3px solid var(--warn, var(--border));
+  padding-left: 6px;
+}
+
+.mfp-fix__where {
+  font-size: 12px;
+  color: var(--ink-muted);
+  min-width: 5.5em;
+}
+
+/* The corrected sentence, with the change marked. What the reader is
+   judging is the sentence they would END UP with -- a before/after pair of
+   two nearly-identical Chinese sentences is unreadable at exactly the
+   moment it matters (user ruling 2026-08-28). */
+.mfp-fix__line {
+  flex: 1 1 18em;
+  line-height: 1.5;
+}
+
+/* `--ok-bg`, the way a diff marks an ADDITION. Not the accent, which is this
+   app's "you are here" colour and is too pale to find inside a sentence;
+   not `--warn-bg`, which would say something is wrong with the text being
+   proposed. Nothing marks the removal, because the removal is not shown. */
+.mfp-fix__mark {
+  padding: 1px 3px;
+  border-radius: 3px;
+  font-weight: 600;
+  color: var(--ok-ink);
+  background: var(--ok-bg);
+}
+
+.mfp-fix__was {
+  text-decoration: line-through;
+  color: var(--ink-muted);
+}
+
+.mfp-fix__now {
+  font-weight: 600;
+}
+
+.mfp-fix__arrow {
+  color: var(--ink-muted);
+}
+
+.mfp-fix__enrol {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+
+.mfp-fix__input {
+  padding: 3px 6px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  min-width: 9em;
+  max-width: 14em;
+}
+
+.mfp-fix__files {
+  list-style: none;
+  margin: 6px 0;
+  padding: 0;
+  font-size: 12px;
+}
+
+/* --- one step back ------------------------------------------------------ */
+
+/* Above the content and below the notices, in one place for all three
+   views. It appears and disappears rather than enabling and disabling: a
+   control that is on screen and never works is one people stop reading. */
+.mfp-back {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--accent-light);
+}
+
+.mfp-back__hint {
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+/* --- the glossary editor ------------------------------------------------ */
+
+/* One component, two homes: inline in 設定, and inside a dialog opened from
+   逐字稿. It must therefore lay out inside a settings section AND inside a
+   modal body, which is why nothing here sets its own width. */
+.mfp-gloss {
+  font-size: 13px;
+}
+
+.mfp-gloss__where {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 6px 0;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.mfp-gloss__where code {
+  overflow-wrap: anywhere;
+}
+
+.mfp-gloss__list {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mfp-gloss__add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* A grid, so the headings and the boxes under them are the same columns
+   rather than two guesses that agree at one window width. */
+.mfp-gloss__head,
+.mfp-gloss__row {
+  display: grid;
+  grid-template-columns: minmax(6em, 1fr) minmax(8em, 1.3fr) minmax(6em, 1fr) auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+}
+
+.mfp-gloss__row {
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.mfp-gloss__row .mfp-fix__input {
+  min-width: 0;
+  max-width: none;
+  width: 100%;
+}
+
+/* Column names, for rows whose placeholders are hidden by their own values. */
+.mfp-gloss__head {
+  padding: 0 5px;
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+
+.mfp-gloss__add {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
+/* The confirmation lives in the row rather than in a dialog: this editor is
+   itself inside a modal half the time, and a modal over a modal is a trap
+   the Escape key cannot reason about. */
+.mfp-gloss__confirm {
+  grid-column: 4 / -1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  color: var(--danger);
+}
+
+.mfp-fix__files li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mfp-fix__files code {
+  color: var(--ink-muted);
+  overflow-wrap: anywhere;
+}

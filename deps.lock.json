@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "ytDlp": {
+    "pinnedVersion": null,
+    "minVersion": "2026.08.18"
+  },
+  "galleryDl": {
+    "pinnedVersion": null,
+    "minVersion": null
+  },
+  "ffmpeg": {
+    "pinnedVersion": null,
+    "minVersion": null
+  }
+}

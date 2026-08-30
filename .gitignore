@@ -1,0 +1,38 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+build/
+dist/
+
+# GUI (batch 2). package-lock.json IS committed -- it is the only record of
+# the versions this milestone was actually verified against.
+node_modules/
+coverage/
+.vite/
+
+# Build outputs (G6). Specs and scripts are versioned; artifacts are not.
+release/
+build/pyinstaller/
+.build-cache/
+
+# Where the acceptance checklists tell the reader to write, and where a
+# `stack` run leaves its work directory. Images and sample frames, never
+# sources.
+out/
+electron/dist-electron/
+
+# ...but `electron/build/` is a SOURCE directory that happens to be named
+# `build`, and the blanket `build/` rule above would swallow the app icon.
+# Without this the packaged exe silently falls back to the stock Electron
+# icon on any fresh clone.
+!electron/build/
+
+# Playwright's run artifacts. The specs in gui/e2e/ ARE source; these are the
+# traces and reports a failing run leaves behind.
+gui/test-results/
+gui/playwright-report/
+gui/blob-report/

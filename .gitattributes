@@ -1,0 +1,12 @@
+* text eol=crlf
+
+# Binary assets must NOT get the CRLF treatment above. Without this the app
+# icon is rewritten byte-for-byte on checkout and electron-builder fails to
+# read it -- silently, on a fresh clone only.
+*.png binary
+*.ico binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.exe binary
