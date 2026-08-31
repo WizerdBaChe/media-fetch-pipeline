@@ -406,9 +406,19 @@ def build_parser() -> argparse.ArgumentParser:
     transcript_parser.add_argument(
         "--asr-lang", dest="asr_language", default="auto",
         help="Spoken language for recognition, e.g. zh or en. The default "
-             "detects it from the audio. Naming it skips the detection pass "
-             "and stops a bilingual recording being labelled by its first "
-             "sentence",
+             "maps the languages spoken ACROSS the file and decodes each "
+             "passage in its own. Naming one forces it on the whole "
+             "recording, which is right only when the recording really is "
+             "monolingual -- on a file that changes language it replaces an "
+             "accidental wrong label with a deliberate one",
+    )
+    transcript_parser.add_argument(
+        "--asr-languages", dest="asr_languages", default=None,
+        help="Comma-separated codes the recording may contain, e.g. zh,en. "
+             "Detection then votes only among these. Worth declaring: the "
+             "detector offers languages a recording is not in, and one such "
+             "window is enough to misplace a passage. Ignored when "
+             "--asr-lang names a single language",
     )
     transcript_parser.add_argument(
         "--asr-model", dest="asr_model", default=None,
@@ -2481,6 +2491,7 @@ def _run_transcript(args: argparse.Namespace) -> int:
         recognize=args.recognize,
         asr_config=asr_config,
         asr_language=args.asr_language,
+        asr_languages=args.asr_languages,
         say=say,
         on_progress=console.progress,
     )

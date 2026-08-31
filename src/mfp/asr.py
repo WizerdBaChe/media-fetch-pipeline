@@ -209,6 +209,15 @@ class AsrOutcome:
     #: `findings` are properties of the file, re-derivable by anyone holding
     #: it. When the two disagree, the second one is the evidence.
     findings: list = field(default_factory=list)
+    #: Which language the engine decoded each passage in, as
+    #: `[{"language", "start", "end", "windows", "agreement"}, ...]`.
+    #:
+    #: A first-class result rather than a detail of the run, because it is
+    #: what `mfp.quality` rules the text against and what a reader needs in
+    #: order to know which minutes of a bilingual recording to trust. Empty
+    #: for a caption track, a hand-written file, or an engine build that
+    #: predates it -- every reader uses `.get`/truthiness for that reason.
+    plan: list = field(default_factory=list)
 
 
 def is_media_file(path: Path) -> bool:
@@ -482,6 +491,12 @@ def _judge(payload: dict, *, script: str) -> list[quality.Finding]:
         # real instruction rather than on a copy kept over here that would
         # go stale the first time the runner's wording changed.
         instruction=engine.get("instruction"),
+        # ...and which language it decoded each passage in, for the same
+        # reason. Without it `inspect_cues` can only ask questions about the
+        # text; with it, it can ask whether the text is what the engine says
+        # it produced -- which is the one shape that catches a whole passage
+        # decoded in the wrong language.
+        plan=payload.get("languagePlan") or None,
     )
     findings += quality.inspect_run(payload.get("health") or {},
                                     segments=len(segments))
@@ -491,16 +506,28 @@ def _judge(payload: dict, *, script: str) -> list[quality.Finding]:
     )
 
 
+#: Warnings the ladder must NOT climb for, because no rung on it addresses
+#: them. The ladder's only rung turns voice-activity filtering off, which
+#: exists for one failure: the VAD deleting a quiet speaker. A transcript
+#: decoded in the wrong language, or one where the standing instruction
+#: replaced a passage, is not made better by changing the VAD -- and a ladder
+#: that climbs anyway doubles the cost of every such run to arrive at the
+#: same answer. Named rather than inferred, so adding a finding is a decision
+#: about whether a retry could possibly help it.
+_NOT_A_LADDER_PROBLEM = frozenset({"language-drift", "instruction-capture"})
+
+
 def _alarming(payload: dict, findings: list[quality.Finding]) -> bool:
     """Is this attempt bad enough to be worth spending another one on?
 
-    A `warn`, or nothing at all. `note`-level findings are true things about
-    an honest transcript and must not start a second run -- a ladder that
-    climbs on every recording is a ladder that doubles the cost of the
-    product for no one.
+    A `warn` the ladder could actually act on, or nothing at all. `note`-level
+    findings are true things about an honest transcript and must not start a
+    second run -- a ladder that climbs on every recording is a ladder that
+    doubles the cost of the product for no one.
     """
     return not (payload.get("segments") or []) or any(
-        f.severity == "warn" for f in findings
+        f.severity == "warn" and f.code not in _NOT_A_LADDER_PROBLEM
+        for f in findings
     )
 
 
@@ -537,6 +564,7 @@ def recognize(
     device: str = "auto",
     compute_type: str = "auto",
     language: str = "auto",
+    languages: str | None = None,
     script: str = "trad",
     audio: str = "none",
     allow_download: bool = False,
@@ -570,8 +598,8 @@ def recognize(
         return _run_engine(
             media, runner=runner, python_exe=python_exe, model=model,
             model_dir=model_dir, device=device, compute_type=compute_type,
-            language=language, script=script, audio=audio,
-            allow_download=allow_download,
+            language=language, languages=languages, script=script,
+            audio=audio, allow_download=allow_download,
             extra=list(step["argv"]), say=say, on_progress=on_progress,
         )
 
@@ -643,6 +671,31 @@ def recognize(
     )
     say(f"saved: {plain}")
 
+    # The language plan, beside the words it explains, and ONLY when the file
+    # carried more than one language. A single-language recording gets no
+    # extra file, because a plan that says "all of it was Chinese" is what the
+    # transcript's own name already says.
+    #
+    # Written as evidence rather than as configuration: it carries the raw
+    # per-window votes as well as the smoothed stretches, because a stretch
+    # published without the votes behind it is a verdict nobody can check.
+    plan = payload.get("languagePlan") or []
+    if len({s.get("language") for s in plan}) > 1:
+        record = runs.place(out_dir, f"{base}.{language_tag}.language.json")
+        record.write_text(
+            json.dumps({
+                "schemaVersion": 1,
+                "transcript": target.name,
+                "windowSeconds": 30.0,
+                "heard": payload.get("languagesHeard") or {},
+                "stretches": plan,
+                "windows": payload.get("languageMap") or [],
+            }, ensure_ascii=False, indent=1),
+            encoding="utf-8",
+        )
+        say(f"saved: {record}")
+        say("這份錄音裡不只一種語言，各段用的語言記在上面那個檔案裡。")
+
     for finding in findings:
         say(("WARNING: " if finding.severity == "warn" else "note: ") + finding.detail)
     if on_progress is not None and findings:
@@ -671,6 +724,7 @@ def recognize(
         duration=float(payload.get("duration") or 0.0),
         health=payload.get("health") or {},
         findings=findings,
+        plan=plan,
     )
 
 
@@ -684,6 +738,7 @@ def _run_engine(
     device: str,
     compute_type: str,
     language: str,
+    languages: str | None,
     script: str,
     audio: str,
     allow_download: bool,
@@ -708,6 +763,8 @@ def _run_engine(
         "--audio", audio,
         *extra,
     ]
+    if languages:
+        argv += ["--languages", languages]
     if model_dir:
         argv += ["--model-dir", model_dir]
     if allow_download:

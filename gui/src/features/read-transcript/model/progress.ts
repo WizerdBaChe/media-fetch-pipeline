@@ -20,7 +20,12 @@
  */
 
 import { create } from "zustand";
-import type { AsrHealth, AsrProgress, TranscriptFinding } from "@/shared/api/types";
+import type {
+  AsrHealth,
+  AsrProgress,
+  LanguageStretch,
+  TranscriptFinding,
+} from "@/shared/api/types";
 
 export interface AsrProgressState {
   /** `null` when nothing is being transcribed, which is the normal state. */
@@ -31,6 +36,10 @@ export interface AsrProgressState {
    *  from `health` because one is a black box's self-report and the other is
    *  a property of the file. */
   findings: TranscriptFinding[];
+  /** Which language the engine decoded each passage in. Empty for a
+   *  single-language recording and for an older sidecar, so every reader
+   *  treats emptiness as "nothing to say" rather than as a failure. */
+  plan: LanguageStretch[];
   /** When the first segment arrived, for the estimate. Not when the request
    *  started: decode and model load run at a different speed and would make
    *  the first estimate wildly pessimistic. */
@@ -46,6 +55,7 @@ export const useAsrProgress = create<AsrProgressState>((set) => ({
   progress: null,
   health: null,
   findings: [],
+  plan: [],
   startedAt: null,
   apply: (progress) =>
     set((state) => {
@@ -56,6 +66,13 @@ export const useAsrProgress = create<AsrProgressState>((set) => ({
         const record = progress as unknown as { findings?: TranscriptFinding[] };
         return { findings: record.findings ?? [] };
       }
+      if (progress.phase === "language") {
+        // Arrives once, before any segment. Kept rather than only shown,
+        // because which passage was decoded in which language is a fact
+        // about the file on screen and outlives the wait it arrived during.
+        const record = progress as unknown as { plan?: LanguageStretch[] };
+        return { progress, plan: record.plan ?? [] };
+      }
       return {
         progress,
         startedAt:
@@ -64,7 +81,8 @@ export const useAsrProgress = create<AsrProgressState>((set) => ({
             : state.startedAt,
       };
     }),
-  begin: () => set({ progress: null, health: null, findings: [], startedAt: null }),
+  begin: () =>
+    set({ progress: null, health: null, findings: [], plan: [], startedAt: null }),
   clear: () => set({ progress: null, startedAt: null }),
 }));
 
@@ -165,11 +183,33 @@ function eta(
 export function describeVerdicts(
   findings: TranscriptFinding[],
   health: AsrHealth | null,
+  plan: LanguageStretch[] = [],
 ): { severity: string; text: string }[] {
   const rows = findings.map((f) => ({
     severity: f.severity === "warn" ? "warn" : "note",
     text: f.detail,
   }));
+
+  // A verdict that names no action is 「技術告知」 and the reader's answer to
+  // it is 「所以我到底要不要重跑」 (UAT E-24). These two have answers, so
+  // they carry them.
+  if (findings.some((f) => f.code === "language-drift")) {
+    rows.push({
+      severity: "note",
+      text:
+        "如果你知道這段錄音是什麼語言，到「設定 → 語音辨識與翻譯」把" +
+        "「錄音的語言」直接指定，再重跑一次會比較準；" +
+        "如果整段錄音真的有兩種語言，把它切成語言單一的幾段分別跑。",
+    });
+  }
+  if (findings.some((f) => f.code === "instruction-capture")) {
+    rows.push({
+      severity: "note",
+      text:
+        "那一段已經自動拿掉指令重跑過一次。如果內容還是不對，" +
+        "通常表示那幾分鐘的錄音本身就很難聽清楚。",
+    });
+  }
 
   if (rows.length === 0) {
     // No findings at all: either the transcript is clean, or nothing ran the
@@ -180,6 +220,12 @@ export function describeVerdicts(
     // in the field means one is broken, and the safe direction is to speak.
     const fallback = describeHealth(health);
     if (fallback) rows.push({ severity: "warn", text: fallback });
+    // A CLEAN bilingual transcript still owes the reader this line: nothing
+    // is wrong with it, and it is a different kind of object from the one
+    // they asked for. Returning early without it was the bug this comment
+    // is here to stop coming back.
+    const clean = describeLanguagePlan(plan);
+    if (clean) rows.push({ severity: "note", text: clean });
     return rows;
   }
 
@@ -211,7 +257,37 @@ export function describeVerdicts(
         `前後文的連貫性可能會斷開。`,
     });
   }
+  const languages = describeLanguagePlan(plan);
+  if (languages) rows.push({ severity: "note", text: languages });
   return rows;
+}
+
+/**
+ * The languages this recording turned out to contain, as one line, or `null`.
+ *
+ * `null` for a single-language recording, which is almost all of them: a
+ * panel that reports after every transcription trains people to stop reading
+ * it. What earns a line is the case a reader would otherwise never learn
+ * about — the recording had two languages and the transcript is a different
+ * kind of object from the one they asked for.
+ *
+ * Not a warning. Two languages is a fact about the recording, not a defect;
+ * the defect would be failing to notice, and that has its own finding.
+ */
+export function describeLanguagePlan(plan: LanguageStretch[]): string | null {
+  const spoken = [...new Set(plan.map((s) => s.language))];
+  if (spoken.length < 2) return null;
+  const names: Record<string, string> = {
+    zh: "中文",
+    en: "英文",
+    ja: "日文",
+    ko: "韓文",
+  };
+  const listed = spoken.map((code) => names[code] ?? code).join("、");
+  const parts = plan.map(
+    (s) => `${clock(s.start)}–${clock(s.end)} ${names[s.language] ?? s.language}`,
+  );
+  return `這段錄音裡有 ${listed}，各段分開辨識：${parts.join("、")}。`;
 }
 
 /**

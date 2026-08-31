@@ -426,8 +426,9 @@ export interface AsrProgress {
 export interface TranscriptFinding {
   /** Machine-stable: `simplified-script`, `repeated-line`, `stops-early`,
    *  `sparse-text`, `presentation-punctuation`, `backwards-cue`,
-   *  `thin-coverage`. Unknown codes still render — the sentence comes from
-   *  the server, so a new check needs no change here. */
+   *  `thin-coverage`, `language-drift`, `contested-language`,
+   *  `instruction-capture`. Unknown codes still render — the sentence comes
+   *  from the server, so a new check needs no change here. */
   code: string;
   /** `warn` — look at this before using the transcript. `note` — true and
    *  worth knowing, not a problem by itself. */
@@ -438,6 +439,27 @@ export interface TranscriptFinding {
   /** Seconds into the transcript, when the finding has a place. */
   at?: number | null;
   evidence?: Record<string, unknown>;
+}
+
+/**
+ * One passage of a recording, and the language it was decoded in.
+ *
+ * A recording is not required to be in one language, and until the engine
+ * mapped them it decided once for the whole file — which on a meeting that
+ * switches partway meant the second half was invented rather than heard.
+ * The plan is what the product can now SAY about that, and it arrives on the
+ * `phase: "language"` progress record before any segment does.
+ */
+export interface LanguageStretch {
+  language: string;
+  /** Seconds from the start of the recording. */
+  start: number;
+  end: number;
+  /** How many of this passage's own 30-second windows voted for its
+   *  language. Below 0.8 the two languages were alternating faster than a
+   *  window can follow, and those minutes are worth less than the rest. */
+  agreement?: number;
+  windows?: number;
 }
 
 export interface AsrHealth {

@@ -46,6 +46,7 @@ class TranscriptRequest(CamelModel):
     recognize: str = "auto"
     #: Spoken language for recognition. `auto` detects it.
     asr_language: str = "auto"
+    asr_languages: str | None = None
 
 
 class TranscriptLine(CamelModel):
@@ -415,6 +416,7 @@ def build_transcript_router() -> APIRouter:
             recognize=body.recognize,
             asr_config=config.asr,
             asr_language=body.asr_language,
+            asr_languages=body.asr_languages,
             on_progress=_progress_publisher(request),
         )
         return TranscriptResponse(

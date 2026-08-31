@@ -166,6 +166,7 @@ def resolve(
     recognize: str = "auto",
     asr_config: "AsrConfig | None" = None,
     asr_language: str = "auto",
+    asr_languages: str | None = None,
     say=None,
     on_progress=None,
 ) -> tuple[Path, str, str | None, str | None]:
@@ -215,6 +216,7 @@ def resolve(
             refresh=refresh,
             asr_config=asr_config,
             asr_language=asr_language,
+            asr_languages=asr_languages,
             say=say,
             on_progress=on_progress,
         )
@@ -256,6 +258,7 @@ def _recognize_local(
     refresh: bool,
     asr_config: "AsrConfig | None",
     asr_language: str,
+    asr_languages: str | None,
     say,
     on_progress,
 ) -> tuple[Path, str, str | None, str | None]:
@@ -319,6 +322,7 @@ def _recognize_local(
         device=settings.device,
         compute_type=settings.compute_type,
         language=asr_language,
+        languages=asr_languages,
         script=settings.script,
         audio=settings.audio,
         allow_download=settings.allow_download,
@@ -348,6 +352,7 @@ def load(
     recognize: str = "auto",
     asr_config: "AsrConfig | None" = None,
     asr_language: str = "auto",
+    asr_languages: str | None = None,
     say=None,
     on_progress=None,
 ) -> Transcript:
@@ -360,6 +365,7 @@ def load(
         recognize=recognize,
         asr_config=asr_config,
         asr_language=asr_language,
+        asr_languages=asr_languages,
         say=say,
         on_progress=on_progress,
     )

@@ -181,7 +181,8 @@ export function TranscriptWorkspace({
   // nothing the reader has to act on.
   const asrHealth = useAsrProgress((state) => state.health);
   const asrFindings = useAsrProgress((state) => state.findings);
-  const verdicts = describeVerdicts(asrFindings, asrHealth);
+  const asrPlan = useAsrProgress((state) => state.plan);
+  const verdicts = describeVerdicts(asrFindings, asrHealth, asrPlan);
 
   // Whether this machine could listen at all, asked ONCE per session and
   // shared with the settings panel. Read here so the answer arrives before

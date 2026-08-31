@@ -211,6 +211,20 @@ FALLBACK_SHARE_ALARM = 0.5
 #: segment is 100% and says nothing at all.
 FALLBACK_MIN_SEGMENTS = 4
 
+#: Below this share of a stretch's own windows agreeing with the language it
+#: was decoded in, say which minutes those are. Mirrors
+#: `CONTESTED_AGREEMENT` in `asr/runner.py` -- kept here as well because this
+#: module must be able to rule on a plan it did not produce.
+CONTESTED_AGREEMENT = 0.8
+
+#: A run of this many consecutive cues that are nothing but the engine's own
+#: instruction is the instruction having REPLACED the speech, rather than
+#: having leaked into it once. Measured: the passage this was found on ran
+#: eleven cues and 99 characters where the same audio without the instruction
+#: carries 512 (spike-07 6). Three, matching `REPEAT_RUN_ALERT`, because the
+#: two describe the same kind of event.
+INSTRUCTION_CAPTURE_RUN = 3
+
 
 def density_of(cues: list[dict]) -> tuple[float, float]:
     """`(chars_per_cue_second, cue_seconds)`.
@@ -257,27 +271,196 @@ def _prompt_echo(cues: list[dict], *, instruction: str | None) -> list[Finding]:
     Ruled on the instruction the engine ACTUALLY received, which the runner
     now reports. Without a claim there is nothing to check against, exactly
     as with `expect_script`.
+
+    Matched on a shared RUN of characters rather than on a whole clause,
+    because the leak is not always verbatim. Real audio produced
+    `中文詞彙保留英文。` -- a corrupted form of 「繁體中文，英文詞彙保留英文。」
+    that contains NEITHER clause as a substring and sailed straight past the
+    clause match (spike-07 6). A check defeated by the corruption of its own
+    target is not a check.
+
+    A long enough RUN of these cues is a different event and gets its own
+    code. One echo is the instruction leaking into the transcript; eleven in
+    a row is the instruction having replaced five minutes of a meeting, and
+    the remedy is not the same -- so the finding does not pretend they are.
     """
     clauses = _instruction_clauses(instruction)
-    if not clauses:
+    if not clauses or not instruction:
         return []
-    hits = [
-        cue for cue in cues
-        if any(clause in str(cue.get("text", "")) for clause in clauses)
-    ]
+    flags = [_is_instruction_echo(str(cue.get("text", "")), instruction, clauses)
+             for cue in cues]
+    hits = [cue for cue, flag in zip(cues, flags) if flag]
     if not hits:
         return []
+
+    longest = 0
+    run = 0
+    run_at = 0.0
+    at_longest = 0.0
+    for cue, flag in zip(cues, flags):
+        if flag:
+            if run == 0:
+                run_at = float(cue.get("start", 0.0))
+            run += 1
+            if run > longest:
+                longest, at_longest = run, run_at
+        else:
+            run = 0
+
+    if longest >= INSTRUCTION_CAPTURE_RUN:
+        return [Finding(
+            code="instruction-capture",
+            severity="warn",
+            detail=(
+                f"從 {_clock(at_longest)} 起有連續 {longest} 句寫的是引擎自己的"
+                f"設定指令，不是錄音的內容——那段話等於沒有被寫下來。"
+                f"這是引擎在難解的段落把指令當成前文接下去寫，"
+                f"通常可以把那一段拿掉指令重跑救回來。"
+            ),
+            at=at_longest,
+            evidence={"run": longest, "count": len(hits),
+                      "instruction": instruction, "clauses": clauses},
+        )]
     return [Finding(
         code="prompt-echo",
         severity="warn",
         detail=(
             f"有 {len(hits)} 句字幕寫的是引擎自己的設定指令"
-            f"（「{clauses[0]}」），不是錄音的內容。"
-            f"這通常表示那一段音訊引擎聽不出東西來。"
+            f"（「{str(hits[0].get('text', '')).strip()[:14]}」），"
+            f"不是錄音的內容。這通常表示那一段音訊引擎聽不出東西來。"
         ),
         at=float(hits[0].get("start", 0.0)),
         evidence={"count": len(hits), "instruction": instruction,
                   "clauses": clauses},
+    )]
+
+
+def _is_instruction_echo(text: str, instruction: str, clauses: list[str],
+                         *, min_run: int = 6, max_chars: int = 24) -> bool:
+    """Is this ONE cue the instruction rather than speech?
+
+    Two ways in, and both are needed. A whole clause anywhere is the original
+    leak. A shared run of `min_run` characters inside a cue short enough to
+    be nothing but the instruction is the corrupted form -- which is what
+    real audio actually produced.
+
+    The length bound is load-bearing in the second case: a real sentence
+    discussing 「英文詞彙保留英文」 is longer than an instruction cue, and a
+    cue shorter than the run cannot carry evidence of one (「英文」 is a word
+    people say).
+    """
+    if any(clause in text for clause in clauses):
+        return True
+    body = text.strip().strip("。.,，、！!？? ")
+    if len(body) < min_run or len(body) > max_chars:
+        return False
+    return any(
+        body[index:index + min_run] in instruction
+        for index in range(0, len(body) - min_run + 1)
+    )
+
+
+def _language_drift(cues: list[dict], *, plan: list[dict] | None) -> list[Finding]:
+    """A passage the engine says is Chinese, whose text has no Chinese in it.
+
+    This is the check that would have caught the failure this whole plan
+    exists for, from the artifact alone. The delivered transcript of a
+    51-minute bilingual meeting carried 1255 cues and **zero** CJK characters
+    while 72 of its 103 windows were Mandarin -- and every check in this
+    module passed it, because each one asks about a property of the text and
+    none of them had anything to compare the text WITH.
+
+    Only Chinese is ruled on, and the asymmetry is deliberate rather than an
+    omission. `zh` has a writing system a check can see; `en` and `ja` and
+    `ko` do not separate that cleanly from each other or from a transcript
+    full of technical terms, and a gate may only rule on what it can
+    determine. Chinese is where the determination exists, so Chinese is
+    where the ruling is.
+
+    The reverse case -- an English stretch full of Chinese -- is caught by
+    the same comparison from the other side and is reported the same way.
+    """
+    if not plan:
+        return []
+    findings: list[Finding] = []
+    for stretch in plan:
+        code = str(stretch.get("language") or "").split("-")[0]
+        inside = _cues_in(cues, stretch)
+        if not inside:
+            continue
+        text = "".join(str(cue.get("text", "")) for cue in inside)
+        if not text.strip():
+            continue
+        has_cjk = any("一" <= char <= "鿿" for char in text)
+        at = float(inside[0].get("start", 0.0))
+        if code == "zh" and not has_cjk:
+            findings.append(Finding(
+                code="language-drift",
+                severity="warn",
+                detail=(
+                    f"{_clock(stretch.get('start', 0.0))} 到 "
+                    f"{_clock(stretch.get('end', 0.0))} 這段聽起來是中文，"
+                    f"但寫出來的字裡面一個中文都沒有。這通常表示這段被用"
+                    f"錯誤的語言辨識了，內容是編出來的而不是聽出來的。"
+                ),
+                at=at,
+                evidence={"language": code, "cues": len(inside),
+                          "start": float(stretch.get("start", 0.0)),
+                          "end": float(stretch.get("end", 0.0))},
+            ))
+        elif code and code != "zh" and has_cjk:
+            cjk = sum(1 for char in text if "一" <= char <= "鿿")
+            if cjk / len(text) > 0.3:
+                findings.append(Finding(
+                    code="language-drift",
+                    severity="warn",
+                    detail=(
+                        f"{_clock(stretch.get('start', 0.0))} 到 "
+                        f"{_clock(stretch.get('end', 0.0))} 這段標的是 "
+                        f"{code}，但寫出來的內容大部分是中文。"
+                    ),
+                    at=at,
+                    evidence={"language": code, "cues": len(inside),
+                              "cjkShare": round(cjk / len(text), 3)},
+                ))
+    return findings
+
+
+def _contested(plan: list[dict] | None) -> list[Finding]:
+    """Which minutes the language map itself was unsure about.
+
+    A `note`, never a warning, and it must stay one: a bilingual passage is
+    not a defect, it is a recording of two people who switch language faster
+    than a 30-second window can follow. What is worth saying is WHICH
+    minutes, so a reader knows where to check rather than distrusting the
+    whole file.
+    """
+    if not plan:
+        return []
+    contested = [
+        stretch for stretch in plan
+        if stretch.get("agreement") is not None
+        and float(stretch["agreement"]) < CONTESTED_AGREEMENT
+    ]
+    if not contested:
+        return []
+    spans = "、".join(
+        f"{_clock(s.get('start', 0.0))}–{_clock(s.get('end', 0.0))}"
+        for s in contested[:3]
+    )
+    return [Finding(
+        code="contested-language",
+        severity="note",
+        detail=(
+            f"有 {len(contested)} 段（{spans}）中英文交替得比較快，"
+            f"辨識時只能整段挑一種語言。這幾段的可靠度比其他地方低。"
+        ),
+        at=float(contested[0].get("start", 0.0)),
+        evidence={"stretches": [
+            {"language": s.get("language"), "start": s.get("start"),
+             "end": s.get("end"), "agreement": s.get("agreement")}
+            for s in contested
+        ]},
     )]
 
 
@@ -345,6 +528,7 @@ def inspect_cues(
     language: str | None = None,
     expect_script: str | None = None,
     instruction: str | None = None,
+    plan: list[dict] | None = None,
 ) -> list[Finding]:
     """Everything determinable about this transcript, worst first.
 
@@ -353,24 +537,52 @@ def inspect_cues(
     CLAIM being checked -- `trad` means the caller asked for Traditional, so
     Simplified output is a finding. Without a claim there is nothing to
     check against, and the script check does not run.
+
+    `plan` is the engine's own account of which language it decoded each
+    passage in. It is a CLAIM like the others, and having it is what lets
+    this module rule on the failure it could not previously see: a stretch
+    the engine says is Chinese whose cues contain no Chinese. Without a plan
+    every check falls back to the single-language behaviour every earlier
+    build had, so a transcript from any other source still gets inspected.
     """
     findings: list[Finding] = []
     if not cues:
         return findings
 
-    findings += _script(cues, language=language, expect_script=expect_script)
+    findings += _script(cues, language=language, expect_script=expect_script,
+                        plan=plan)
+    findings += _language_drift(cues, plan=plan)
+    findings += _contested(plan)
     findings += _prompt_echo(cues, instruction=instruction)
     findings += _punctuation(cues)
     findings += _repetition(cues)
     findings += _timeline(cues, duration=duration)
-    findings += _density(cues, language=language)
+    findings += _density(cues, language=language, plan=plan)
 
     order = {"warn": 0, "note": 1}
     return sorted(findings, key=lambda f: (order.get(f.severity, 9), f.at or 0.0))
 
 
+def _plan_languages(plan: list[dict] | None) -> set[str]:
+    return {str(s.get("language") or "").split("-")[0] for s in (plan or [])}
+
+
+def _cues_in(cues: list[dict], stretch: dict) -> list[dict]:
+    """The cues belonging to one stretch, by the same midpoint rule the
+    runner used to place them there."""
+    start = float(stretch.get("start", 0.0))
+    end = float(stretch.get("end", 0.0))
+    inside = []
+    for cue in cues:
+        middle = (float(cue.get("start", 0.0)) + float(cue.get("end", 0.0))) / 2
+        if start <= middle < end:
+            inside.append(cue)
+    return inside
+
+
 def _script(
-    cues: list[dict], *, language: str | None, expect_script: str | None
+    cues: list[dict], *, language: str | None, expect_script: str | None,
+    plan: list[dict] | None = None,
 ) -> list[Finding]:
     """Did the Traditional-Chinese request actually take?
 
@@ -379,8 +591,26 @@ def _script(
     the hint had worked -- which is why "the instruction survives a context
     reset" had to be measured by hand rather than being a property the
     product could report about its own output.
+
+    A multi-language transcript is named `mul`, which is not `zh` -- so
+    without the plan this check would silently stop running on exactly the
+    files that gained the most new Chinese. It reads the plan when there is
+    one, and only over the passages the engine says are Chinese: Simplified
+    characters cannot appear in an English passage, and looking for them
+    there would only find false positives.
     """
-    if expect_script != "trad" or (language or "").split("-")[0] != "zh":
+    if expect_script != "trad":
+        return []
+    if plan:
+        if "zh" not in _plan_languages(plan):
+            return []
+        cues = [
+            cue
+            for stretch in plan
+            if str(stretch.get("language") or "").split("-")[0] == "zh"
+            for cue in _cues_in(cues, stretch)
+        ]
+    elif (language or "").split("-")[0] != "zh":
         return []
     hits: dict[str, int] = {}
     first_at: float | None = None
@@ -543,7 +773,8 @@ def _timeline(cues: list[dict], *, duration: float | None) -> list[Finding]:
     return findings
 
 
-def _density(cues: list[dict], *, language: str | None) -> list[Finding]:
+def _density(cues: list[dict], *, language: str | None,
+             plan: list[dict] | None = None) -> list[Finding]:
     """Text per second of speech -- the only dimension deletion shows up in.
 
     Reported with the floor beside it, because the number means nothing
@@ -554,10 +785,25 @@ def _density(cues: list[dict], *, language: str | None) -> list[Finding]:
     speaker produces the low number honestly.
 
     A language with no measured floor is not judged at all.
+
+    On a plan, the rate is measured over the CHINESE stretches alone.
+    Averaging a Chinese floor across English passages compares two things
+    with different natural densities and produces a number that is nobody's:
+    English at 15 characters per second would hide a Chinese passage that had
+    been emptied.
     """
-    code = (language or "").split("-")[0]
+    if plan and "zh" in _plan_languages(plan):
+        code = "zh"
+        cues = [
+            cue
+            for stretch in plan
+            if str(stretch.get("language") or "").split("-")[0] == "zh"
+            for cue in _cues_in(cues, stretch)
+        ]
+    else:
+        code = (language or "").split("-")[0]
     floor = DENSITY_FLOOR.get(code)
-    if floor is None:
+    if floor is None or not cues:
         return []
     rate, spoken = density_of(cues)
     if spoken <= 0 or rate >= floor:
