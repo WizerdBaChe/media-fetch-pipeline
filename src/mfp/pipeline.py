@@ -376,11 +376,13 @@ def _dry_run_rows(
     resolved is reported here rather than raised, because the whole value of
     a dry run is learning that before the download rather than during it.
     """
-    import shutil
-
+    from mfp import toolchain
     from mfp.policy import apply_policy_to_manifest
 
-    ffmpeg = ctx.config.binaries.ffmpeg or shutil.which("ffmpeg")
+    # `toolchain.resolve` rather than PATH: a user who installed ffmpeg
+    # through the setup panel has it in the program's own tools directory
+    # and nowhere else, and muxing must not stay "unavailable" for them.
+    ffmpeg = ctx.config.binaries.ffmpeg or toolchain.resolve("ffmpeg")
     apply_policy_to_manifest(
         manifest,
         policy,

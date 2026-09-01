@@ -143,10 +143,25 @@ class TaskWorker:
         self._queue = queue
         self._config = config
         self._broadcaster = broadcaster
-        # Inline by default, which is correct while nothing is threaded --
-        # construction, `drain()`, and every test. The server rebinds this to
-        # `loop.call_soon_threadsafe` at startup, before `start()`.
-        self._dispatch = dispatch or (lambda run: run())
+        # Inline by default, and SERIALISED, which the first version was not.
+        #
+        # The comment here used to say inline was correct "while nothing is
+        # threaded -- construction, `drain()`, and every test". That was
+        # false: `test_worker_lanes.py` calls `start()`, which runs both
+        # lanes, with no dispatch bound. Two threads then ran queue mutations
+        # inline and `TaskQueue.save` -- write `queue.json.tmp`, `os.replace`
+        # -- collided on Windows with `[WinError 32]` and `[Errno 13]`,
+        # killing a worker thread. The module's whole threading design is
+        # "one writer"; the default was the one path where that was a hope.
+        #
+        # `RLock` rather than `Lock` because a dispatched callable may
+        # dispatch again on the same thread, which a plain lock would
+        # deadlock. The server still rebinds this to
+        # `loop.call_soon_threadsafe` at startup, before `start()`, and that
+        # remains the real answer -- one THREAD owning the queue, not one
+        # mutation at a time.
+        self._dispatch_lock = threading.RLock()
+        self._dispatch = dispatch or self._dispatch_inline
         #: Held only when this worker built its own adapters. An injected
         #: `adapter_for` owns whatever it opens, and a browser this class
         #: never handed out is not this class's to close.
@@ -219,6 +234,11 @@ class TaskWorker:
         return self._jobs.qsize() + self._transfers.qsize()
 
     # --- lifecycle -----------------------------------------------------------
+
+    def _dispatch_inline(self, run) -> None:
+        """The default dispatch: run it here, but never two at once."""
+        with self._dispatch_lock:
+            run()
 
     def bind_dispatch(self, dispatch: Dispatch) -> None:
         """Point queue mutations at the thread that owns the queue.
@@ -437,9 +457,11 @@ class TaskWorker:
             return parse_policy(self._config.policy)
 
     def _ffmpeg(self) -> str | None:
-        import shutil
+        from mfp import toolchain
 
-        return self._config.binaries.ffmpeg or shutil.which("ffmpeg")
+        # See `pipeline._apply_policy`: the copy this program installed for
+        # the user counts, and it is not on PATH.
+        return self._config.binaries.ffmpeg or toolchain.resolve("ffmpeg")
 
     # --- posting results back (owner thread) ---------------------------------
 

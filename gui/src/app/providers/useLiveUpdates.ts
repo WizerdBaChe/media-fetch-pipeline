@@ -14,6 +14,7 @@ import { useStackStore } from "@/entities/stack-job/model/store";
 import { useTaskStore } from "@/entities/task/model/store";
 import { useAsrProgress } from "@/features/read-transcript/model/progress";
 import { useAsrSetup } from "@/features/setup-asr/model/store";
+import { useTools } from "@/features/setup-tools/model/store";
 import { useTranslateDoc } from "@/features/translate-document/model/store";
 import { useTranslate } from "@/features/translate-transcript/model/store";
 import { subscribe as subscribeTabs } from "@/shared/lib/tabSync";
@@ -67,6 +68,10 @@ export function useLiveUpdates(): void {
       // the setup panel is open while it happens.
       onAsrInstall: (progress) =>
         useAsrSetup.getState().applyInstallProgress(progress),
+      // Same treatment again, one layer earlier in a person's life with this
+      // app: fetching ffmpeg is ~106 MB, and the banner that started it is
+      // the only thing on screen saying anything is happening.
+      onToolInstall: (progress) => useTools.getState().applyProgress(progress),
       // Both translate stores, because `mt` is ONE event name for two
       // panels and the server has no idea which asked. Safe rather than
       // sloppy: only one translation can be in flight at a time, and each

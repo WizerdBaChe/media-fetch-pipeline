@@ -27,6 +27,7 @@ from mfp.server.routes_brief import build_brief_router
 from mfp.server.routes_config import build_config_router
 from mfp.server.routes_queue import build_queue_router
 from mfp.server.routes_stack import build_stack_router
+from mfp.server.routes_tools import build_tools_router
 from mfp.server.routes_transcript import build_transcript_router
 from mfp.server.stack_jobs import StackJobRunner
 from mfp.server.security import install_loopback_guard
@@ -103,6 +104,13 @@ ERROR_STATUS: dict[str, int] = {
     # is broken -- it answered, and the answer was no.
     "platform_transfer_blocked": 403,
     "dependency_missing": 503,
+    # 502: the failure is almost always upstream of us -- a release page
+    # that moved, a checksum that did not match, a host that would not
+    # answer -- and the panel's response is to offer a retry and a manual
+    # link. Sharing 503 with `dependency_missing` would blur "the tool is
+    # not here" into "fetching the tool did not work", which are different
+    # things to be told.
+    "tool_install_failed": 502,
     "chrome_default_profile": 500,
     "upstream_structure_change": 502,
     # 422, deliberately not 502: the post was read successfully and simply
@@ -260,6 +268,7 @@ def create_app(
     app.include_router(build_config_router(), prefix=API_PREFIX)
     app.include_router(build_asr_router(), prefix=API_PREFIX)
     app.include_router(build_brief_router(), prefix=API_PREFIX)
+    app.include_router(build_tools_router(), prefix=API_PREFIX)
 
     @app.get("/v1/health")
     async def health(request: Request) -> dict[str, object]:

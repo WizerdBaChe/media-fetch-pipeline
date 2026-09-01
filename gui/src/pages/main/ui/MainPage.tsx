@@ -1,13 +1,17 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/shared/ui/Button";
 import { ErrorBoundary } from "@/shared/ui/ErrorBoundary";
 import { Tabs, type TabDef } from "@/shared/ui/Tabs";
 import * as history from "@/shared/lib/history";
 import { countsByTab, type TabId } from "@/entities/task/model/selectors";
 import { useTaskStore } from "@/entities/task/model/store";
+import { useSessionStore } from "@/entities/session/model/store";
 import { AddUrlsForm } from "@/features/add-urls/ui/AddUrlsForm";
 import { ExtensionMenu } from "@/features/pick-extension/ui/ExtensionMenu";
+import { FeatureGuide } from "@/entities/onboarding/ui/FeatureGuide";
+import { useOnboarding } from "@/entities/onboarding/model/store";
 import { CapabilityNotice } from "@/widgets/capability-notice/ui/CapabilityNotice";
+import { FirstRunDialog } from "@/widgets/onboarding/ui/FirstRunDialog";
 import { DocumentWorkspace } from "@/widgets/document-workspace/ui/DocumentWorkspace";
 import { PostWorkspace } from "@/widgets/post-workspace/ui/PostWorkspace";
 import { QueueTable } from "@/widgets/queue-table/ui/QueueTable";
@@ -131,6 +135,25 @@ export function MainPage() {
   );
 
   const goBack = useCallback(() => setPast(history.back), []);
+
+  /**
+   * The one-time explanations, asked for once per launch.
+   *
+   * Here rather than in each workspace: the answer is one request, and four
+   * screens each asking on mount would send four -- three of them for a list
+   * the first one already has.
+   *
+   * Keyed off `reachable` rather than mount alone, because the window opens
+   * before the sidecar finishes starting. A failed ask leaves `seen` null,
+   * which shows nothing; without this the price of losing that race would be
+   * a brand-new user never being offered the first-run dialog at all.
+   */
+  const reachable = useSessionStore((state) => state.reachable);
+  const guidesSeen = useOnboarding((state) => state.seen);
+  const loadGuides = useOnboarding((state) => state.load);
+  useEffect(() => {
+    if (reachable !== false && guidesSeen === null) void loadGuides();
+  }, [reachable, guidesSeen, loadGuides]);
 
   const counts = countsByTab(tasks);
   const tabs: readonly TabDef<TabId>[] = [
@@ -268,6 +291,15 @@ export function MainPage() {
           reachable: it is where a background transfer reports itself, and
           hiding that behind 設定 would rebuild the defect one layer up. */}
       {settingsAt !== null && <SettingsOverlay onClose={closeSettings} initial={settingsAt} />}
+
+      {/* Both above the surface and both once-only. The first-run dialog is
+          rendered before the per-tool guide so that a brand-new user cannot
+          be handed two modals at once: nothing opens a tool until it has
+          been dismissed, so the second one has not been reached yet. The
+          tour is keyed off the view rather than mounted inside each
+          workspace, because "which screen am I on" is this page's fact. */}
+      <FirstRunDialog />
+      {view.kind !== "queue" && <FeatureGuide id={view.kind} />}
 
       <StatusBar />
     </div>

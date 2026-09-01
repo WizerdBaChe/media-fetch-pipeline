@@ -32,6 +32,7 @@ import type {
   StackJob,
   Task,
   TasksRemoved,
+  ToolInstallProgress,
 } from "./types";
 
 /**
@@ -69,6 +70,11 @@ export interface EventHandlers {
    *  A 3 GB copy is minutes, and it earns the same treatment recognition
    *  got: a moving number rather than a frozen dialog. */
   onAsrInstall?: (progress: AsrInstallProgress) => void;
+  /** Bytes moving while yt-dlp or ffmpeg is being fetched. Its own event
+   *  rather than sharing `asrInstall`: a person setting the app up for the
+   *  first time is not setting up recognition, and one reader for both
+   *  would have to guess which panel the frame belonged to. */
+  onToolInstall?: (progress: ToolInstallProgress) => void;
   /** How many lines a translation has got through. Its own event rather
    *  than sharing `asr`: the two can never be in flight together, but they
    *  count different things and one reader would have to guess which unit
@@ -160,6 +166,7 @@ export function subscribeEvents(
     bind<StackJob>(next, "stack", handlers.onStackJob);
     bind<AsrProgress>(next, "asr", handlers.onAsrProgress);
     bind<AsrInstallProgress>(next, "asrInstall", handlers.onAsrInstall);
+    bind<ToolInstallProgress>(next, "toolInstall", handlers.onToolInstall);
     bind<MtProgress>(next, "mt", handlers.onTranslate);
     // No handler: a ping carries no information beyond "still here", which
     // `sawFrame` has already recorded by the time we get here.

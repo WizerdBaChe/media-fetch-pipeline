@@ -14,6 +14,8 @@ import type {
   BriefSaveRequest,
   BriefSaved,
   DoctorReport,
+  Guides,
+  ToolStatus,
   AddResponse,
   BulkActionResult,
   AppConfig,
@@ -542,6 +544,44 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ name: mode }),
     }),
+
+  /* --- 外部程式（yt-dlp / ffmpeg / Chrome） ----------------------------- */
+
+  /** Every external program, with which copy is actually in use. Runs each
+   *  one to read its version, so it is a few hundred milliseconds, not
+   *  instant -- called when a panel opens, never on a timer. */
+  tools: () => request<{ tools: ToolStatus[] }>("/tools"),
+
+  /** Fetch, verify and wire up one program. Minutes for ffmpeg; progress
+   *  arrives on the event stream, and this promise resolves once it can
+   *  run. Only ever called from a button. */
+  installTool: (name: string) =>
+    request<ToolStatus>("/tools:install", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+
+  /** Drop the copy this program installed. A copy on PATH is untouched. */
+  removeTool: (name: string) =>
+    request<ToolStatus>("/tools:remove", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+
+  /* --- 一次性說明 ------------------------------------------------------- */
+
+  guides: () => request<Guides>("/guides"),
+
+  /** Append, server-side. Not a `PUT /config`: two guides dismissed in the
+   *  same second would each send the config they read before the other's
+   *  write, and the second would silently drop the first. */
+  markGuideSeen: (id: string) =>
+    request<Guides>("/guides:seen", {
+      method: "POST",
+      body: JSON.stringify({ id }),
+    }),
+
+  resetGuides: () => request<Guides>("/guides:reset", { method: "POST" }),
 
   /* --- 紀錄 ------------------------------------------------------------ */
 

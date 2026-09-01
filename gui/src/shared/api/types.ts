@@ -164,6 +164,53 @@ export interface AppConfig {
 }
 
 /**
+ * One external program, and everything a stuck person needs to know about it.
+ *
+ * `source` is the field this type exists for. 「已安裝」 alone cannot answer
+ * 「我明明更新了，為什麼還是舊版」: yt-dlp can be present three ways at once --
+ * set in the config file, installed by this program into its own tools
+ * folder, or sitting on PATH -- and only one of them is being run.
+ */
+export interface ToolStatus {
+  name: string;
+  installed: boolean;
+  /** Which copy is answering. `toolchain.SOURCES` is the authoritative list
+   *  — "configured" | "managed" | "path" | "system" — and null means nothing
+   *  answered. Rendered by `describeSource`, which a Python test checks
+   *  against that tuple. */
+  source: string | null;
+  path: string | null;
+  version: string | null;
+  /** False for Chrome: we can link to it and must not install it. */
+  manageable: boolean;
+  /** Roughly how big the transfer is, so a warning can precede it. */
+  approxBytes: number | null;
+  homepage: string | null;
+  /** Where the managed copy came from, and when. Null unless `source` is
+   *  "managed" -- provenance for a file this program put on the disk. */
+  installedFrom: string | null;
+  installedAt: string | null;
+}
+
+/** A managed install, reporting itself. Same channel discipline as
+ *  `AsrInstallProgress`: the promise resolves at the END, this arrives
+ *  throughout, and a 106 MB transfer with neither would look like a hang. */
+export interface ToolInstallProgress {
+  tool: string;
+  /** "resolving" | "downloading" | "installing" | "done". */
+  phase: string;
+  bytes?: number;
+  total?: number;
+  detail?: string;
+}
+
+/** Which one-time explanations this person has already been shown. Server
+ *  state, not browser state -- see `GuidesConfig` for why. */
+export interface Guides {
+  seen: string[];
+}
+
+/**
  * What this build can actually do. Both flags are false while M2/M3
  * acquisition is frozen; the UI reads them so a task that cannot advance is
  * explained rather than left looking wedged.

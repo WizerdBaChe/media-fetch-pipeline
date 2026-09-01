@@ -44,6 +44,15 @@ Runner = Callable[[list[str]], "subprocess.CompletedProcess[str]"]
 
 def default_runner(argv: list[str]) -> "subprocess.CompletedProcess[str]":
     # argv-array invocation only -- never a shell string (Phase 2 §4.2).
+    #
+    # Resolution happens HERE, at the spawn, and not in `build_argv`: that
+    # function is a pure argv builder with tests that read the literal
+    # `yt-dlp` out of the list, and making it answer differently on a
+    # machine that happens to have one installed would make those tests
+    # depend on the developer's PATH.
+    from mfp.mediatool import resolved_command
+
+    argv = resolved_command(argv)
     started = time.monotonic()
     try:
         done = subprocess.run(

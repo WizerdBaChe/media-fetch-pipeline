@@ -23,10 +23,46 @@ from typing import Sequence
 from mfp import logs
 from mfp.errors import DependencyMissingError, MediaToolFailed, StackError
 
-__all__ = ["run_tool", "with_evidence"]
+__all__ = ["missing_tool", "resolved_command", "run_tool", "with_evidence"]
+
+
+def missing_tool(program: str) -> DependencyMissingError:
+    """The one sentence every 'that program is not here' failure says.
+
+    Shared because there were two of them and they disagreed: `run_tool`
+    raised this, and `stack._run_progress` -- the pass that does the actual
+    work -- let a raw `FileNotFoundError` out, so the long ffmpeg run was
+    the ONE ffmpeg call that produced a traceback instead of an error code.
+    """
+    return DependencyMissingError(
+        f"{Path(program).stem} is not installed or not on PATH; "
+        f"run `mfp doctor` to see what is missing"
+    )
+
+
+def resolved_command(cmd: list[str]) -> list[str]:
+    """Turn a bare program name into the copy this machine should run.
+
+    Callers here write `["ffmpeg", ...]` and `["ffprobe", ...]` because that
+    is what the command reads as. Which ffmpeg that means is not their
+    business and never was: it is the configured one, or the one this
+    program installed into its own tools directory, or whatever is on PATH,
+    in that order (`mfp.toolchain`).
+
+    A path that already has a separator in it is left exactly as it is --
+    those come from a caller that has resolved the question itself, and
+    re-resolving would override an explicit choice.
+    """
+    from mfp import toolchain
+
+    head = cmd[0]
+    if "/" in head or "\\" in head:
+        return cmd
+    return [toolchain.resolve(head) or head, *cmd[1:]]
 
 
 def run_tool(cmd: list[str]) -> str:
+    cmd = resolved_command(cmd)
     # `stdin=DEVNULL` is the rule the whole product follows and the one
     # `test_subprocess_stdin.py` enforces: a child that inherits our stdin
     # can block forever when something upstream is watching that handle.
@@ -47,10 +83,7 @@ def run_tool(cmd: list[str]) -> str:
         # has reported this exact condition as `dependency_missing` since M1;
         # the paths that USE the tool just never said it.
         logs.ran(cmd[0], args=cmd[1:], code=None, ms=0)
-        raise DependencyMissingError(
-            f"{Path(cmd[0]).stem} is not installed or not on PATH; "
-            f"run `mfp doctor` to see what is missing"
-        ) from exc
+        raise missing_tool(cmd[0]) from exc
     logs.ran(cmd[0], args=cmd[1:], code=proc.returncode,
              ms=int((time.monotonic() - started) * 1000))
     if proc.returncode != 0:

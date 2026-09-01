@@ -22,6 +22,7 @@
 
 import { useState } from "react";
 import { revealPath } from "@/shared/lib/desktop";
+import { GuideButton } from "@/entities/onboarding/ui/FeatureGuide";
 import {
   handoffText,
   useExplainPost,
@@ -78,6 +79,9 @@ export function PostWorkspace({ onClose }: PostWorkspaceProps) {
           ← 回到佇列
         </button>
         <h2>貼文解說</h2>
+        {/* Beside the title, not in a menu: the answer to 「剛剛那個說明呢」
+            has to be on the screen the question is asked on. */}
+        <GuideButton id="brief" className="mfp-tx__guide" />
       </header>
 
       <fieldset className="mfp-stack__section">

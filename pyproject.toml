@@ -59,6 +59,22 @@ testpaths = ["tests"]
 # It is the ONLY layer that can catch content deletion (P-50), so "not in the
 # default suite" must never become "not run before a release".
 addopts = "--ignore=tests/conformance"
+# A worker thread dying is a FAILURE, not a note in the warnings summary.
+#
+# `test_worker_lanes.py`'s fake adapter built a `FetchResult` without its two
+# required fields, so every call raised inside `mfp-worker-transfer`. The
+# worker's failure path caught it, the assertions read notes written before
+# the return, and the suite stayed green -- for as long as the fixture
+# existed. The only thing that ever said so was a warning that appeared in
+# some runs and not others, because whether a dying thread is noticed depends
+# on when it dies relative to teardown.
+#
+# Promoted here rather than fixed only at the site, because the site was
+# never the point: a background thread is exactly where an exception has
+# nobody to report to, and this suite runs several.
+filterwarnings = [
+    "error::pytest.PytestUnhandledThreadExceptionWarning",
+]
 
 [tool.coverage.run]
 source = ["src/mfp"]

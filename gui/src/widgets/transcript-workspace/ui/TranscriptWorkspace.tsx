@@ -20,6 +20,7 @@ import { ApiError, api } from "@/shared/api/client";
 import type { CaptionTracks, Transcript } from "@/shared/api/types";
 import { presentError } from "@/shared/lib/errors";
 import { pickVideoFile, revealPath } from "@/shared/lib/desktop";
+import { GuideButton } from "@/entities/onboarding/ui/FeatureGuide";
 import {
   clock,
   selectLine,
@@ -373,6 +374,7 @@ export function TranscriptWorkspace({
         </button>
         <h2>逐字稿</h2>
         {transcript?.title && <span className="mfp-tx__title">{transcript.title}</span>}
+        <GuideButton id="transcript" className="mfp-tx__guide" />
       </header>
 
       <fieldset className="mfp-stack__section">

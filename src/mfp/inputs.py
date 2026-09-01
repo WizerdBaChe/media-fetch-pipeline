@@ -147,7 +147,20 @@ _YT_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"}
 _X_HOSTS = {"x.com", "www.x.com", "twitter.com", "www.twitter.com", "mobile.twitter.com"}
 _BILI_HOSTS = {"bilibili.com", "www.bilibili.com", "m.bilibili.com", "b23.tv"}
 
-_IG_PATH_RE = re.compile(r"^/(?:p|reel|reels|tv)/([A-Za-z0-9_-]+)/?$")
+# Instagram serves one post at two spellings: `/p/<code>/`, and -- when you
+# open it from a profile, which is how most links get copied -- the longer
+# `/<username>/p/<code>/`. Both come out of the address bar, so refusing the
+# second one rejects a URL the user can plainly see is a post.
+#
+# The username segment is dropped in `_canonical_path`, and NOT because of
+# INV-1: identity there is `(platform, postId)`, and the shortcode is the
+# same in both spellings, so the queue would merge them either way. What
+# needs the two to agree is `canonicalUrl`, which is the string `runs.key_for`
+# files a run under -- two spellings would be two source keys for one post,
+# and an analysis made from one link would not be found from the other.
+# (`analyzed` also asks by `canonical_post_key`, which is the belt to this
+# braces; `runs.find` on a bare source is not.)
+_IG_PATH_RE = re.compile(r"^/(?:[A-Za-z0-9._]+/)?(p|reel|reels|tv)/([A-Za-z0-9_-]+)/?$")
 _TH_POST_RE = re.compile(r"^/@([A-Za-z0-9._]+)/post/([A-Za-z0-9_-]+)/?$")
 _TH_SHARE_RE = re.compile(r"^/share/([A-Za-z0-9_-]+)/?$")
 _YT_PATH_RE = re.compile(r"^/(?:shorts|live|embed)/([A-Za-z0-9_-]+)/?$")
@@ -190,7 +203,7 @@ def identify(host: str, path: str, query: dict[str, str]) -> tuple[str, str] | N
     """
     if host in _IG_HOSTS:
         m = _IG_PATH_RE.match(path)
-        return ("instagram", m.group(1)) if m else None
+        return ("instagram", m.group(2)) if m else None
 
     if host in _TH_HOSTS:
         m = _TH_POST_RE.match(path)
@@ -249,6 +262,10 @@ def _is_tracking(name: str) -> bool:
 
 def _canonical_path(platform: str, host: str, path: str) -> str:
     """Force one spelling per post so `/p/ABC` and `/p/ABC/` are one task."""
+    if platform == "instagram" and (m := _IG_PATH_RE.match(path)):
+        # `/<username>/p/ABC/` is the same post as `/p/ABC/`; the profile
+        # prefix is navigation, not identity.
+        return f"/{m.group(1)}/{m.group(2)}/"
     if platform in ("instagram", "threads") and not path.endswith("/"):
         return path + "/"
     if platform in ("youtube", "x", "bilibili"):

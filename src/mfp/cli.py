@@ -89,6 +89,31 @@ def build_parser() -> argparse.ArgumentParser:
         "--json", action="store_true", help="Emit machine-readable JSON on stdout"
     )
 
+    tools_parser = subparsers.add_parser(
+        "tools",
+        help="Show, install or remove the external programs mfp needs",
+        description=(
+            "yt-dlp and ffmpeg are not bundled -- yt-dlp changes weekly and a "
+            "frozen copy is a broken copy within a month -- so this fetches "
+            "them into %APPDATA%/media-fetch-pipeline/tools and every mfp "
+            "command then finds them there. Nothing is elevated, nothing is "
+            "put on PATH, and every payload is checked against the digest its "
+            "publisher published. The GUI's setup panel is this verb with a "
+            "face on it."
+        ),
+    )
+    tools_parser.add_argument(
+        "--install", metavar="NAME", help="Fetch and install one of: yt-dlp, ffmpeg"
+    )
+    tools_parser.add_argument(
+        "--remove",
+        metavar="NAME",
+        help="Delete the copy mfp installed. A copy on PATH is never touched",
+    )
+    tools_parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON on stdout"
+    )
+
     capture_parser = subparsers.add_parser(
         "capture", help="Save a page's outerHTML into tests/fixtures (M2 development aid)"
     )
@@ -779,6 +804,67 @@ def _run_doctor(args: argparse.Namespace) -> int:
             print("doctor: one or more REQUIRED checks failed", file=sys.stderr)
 
     return report.exit_code
+
+
+def _run_tools(args: argparse.Namespace) -> int:
+    """List, install or remove the managed external programs.
+
+    Exit 0 even when something is missing, for the reason `asr-status` gives:
+    being unset up is a state, not a failure of the command that reports it.
+    `mfp doctor` is what exits 6.
+    """
+    from mfp import toolchain
+
+    config = load_config()  # also registers `binaries.*` with the toolchain
+
+    if args.install and args.remove:
+        print("tools: --install and --remove cannot be combined", file=sys.stderr)
+        return 2
+
+    if args.install or args.remove:
+        name = args.install or args.remove
+        if args.install:
+            # Progress on stderr, always: stdout belongs to `--json`, and a
+            # transfer that printed there would corrupt the one output a
+            # script parses (INV: stdout is the machine's).
+            def say(record: dict) -> None:
+                phase = record.get("phase")
+                if phase == "downloading" and record.get("total"):
+                    done = record.get("bytes") or 0
+                    total = record["total"]
+                    print(
+                        f"\r{name}: {done * 100 // total}% "
+                        f"({done // 1048576} / {total // 1048576} MB)",
+                        end="",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                elif phase in {"resolving", "installing", "done"}:
+                    print(f"\r{name}: {phase} {record.get('detail') or ''}".rstrip(),
+                          file=sys.stderr)
+
+            result = toolchain.install(name, on_progress=say)
+        else:
+            result = toolchain.remove(name)
+        print(result.model_dump_json(by_alias=True) if args.json
+              else f"{result.name}: {result.version or 'not installed'}")
+        return 0
+
+    rows = toolchain.statuses(chrome=config.chrome)
+    if args.json:
+        print(json.dumps([row.model_dump(by_alias=True) for row in rows]))
+        return 0
+    for row in rows:
+        where = {"managed": "installed by mfp", "path": "on PATH",
+                 "configured": "set in config.json",
+                 "system": "installed on this machine"}.get(row.source or "", "not found")
+        print(f"[{'OK ' if row.installed else 'MISSING'}] {row.name}: "
+              f"{row.version or 'unknown'} ({where})", file=sys.stderr)
+        if not row.installed and row.manageable:
+            print(f"    mfp tools --install {row.name}", file=sys.stderr)
+        elif not row.installed and row.homepage:
+            print(f"    install it yourself: {row.homepage}", file=sys.stderr)
+    return 0
 
 
 def _run_asr_status(args: argparse.Namespace) -> int:
@@ -2178,6 +2264,7 @@ def _run_analyzed(args: argparse.Namespace) -> int:
     that wants to branch reads the list length.
     """
     from mfp import index as index_module
+    from mfp.inputs import identify
 
     config = load_config()
     out_root = args.out or config.output_root
@@ -2547,6 +2634,7 @@ def _stackable(target: str) -> bool:
 
 _HANDLERS = {
     "doctor": _run_doctor,
+    "tools": _run_tools,
     "capture": _run_capture,
     "serve": _run_serve,
     "probe": _run_probe,

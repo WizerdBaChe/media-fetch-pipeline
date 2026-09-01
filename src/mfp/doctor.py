@@ -234,7 +234,14 @@ def _check_subprocess_binary(
     runner: Runner,
     deps_lock_entry: DepsLockEntry | None = None,
 ) -> DoctorCheck:
-    executable = configured_path or shutil.which(name)
+    # Not `shutil.which` any more: since the setup panel can install these
+    # into the program's own tools directory, PATH is no longer the whole
+    # question, and a doctor that could not see a copy the user had just
+    # installed here would report a machine as broken one second after
+    # fixing it. `toolchain` owns the order.
+    from mfp import toolchain
+
+    executable = configured_path or toolchain.resolve(name)
     if not executable:
         return DoctorCheck(
             name=name,

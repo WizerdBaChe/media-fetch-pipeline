@@ -73,6 +73,24 @@ class BinariesConfig(CamelModel):
     ffmpeg: str | None = None
 
 
+class GuidesConfig(CamelModel):
+    """Which one-time explanations this person has already been shown.
+
+    In the config rather than in the browser's storage, and that is the
+    whole point: a guide is shown ONCE per person, and the renderer's
+    storage is per Electron profile, per user-data directory, and gone the
+    moment anything resets it. Somebody who is told how 逐字稿 works on
+    every launch learns to dismiss it without reading, which is worse than
+    never having shown it.
+
+    Ids are opaque strings owned by the GUI. Deliberately not an enum here:
+    the server has no opinion about which explanations exist, and a schema
+    that had one would need a migration every time a tool gains a page.
+    """
+
+    seen: list[str] = Field(default_factory=list)
+
+
 class AsrConfig(CamelModel):
     """Speech recognition, which lives OUTSIDE this process (see `mfp.asr`).
 
@@ -219,6 +237,7 @@ class AppConfig(CamelModel):
     serve: ServeConfig = Field(default_factory=ServeConfig)
     brief: BriefConfig = Field(default_factory=BriefConfig)
     asr: AsrConfig = Field(default_factory=AsrConfig)
+    guides: GuidesConfig = Field(default_factory=GuidesConfig)
 
 
 def app_data_dir() -> Path:
@@ -239,6 +258,25 @@ def default_config() -> AppConfig:
     return AppConfig()
 
 
+def _announce_binaries(config: AppConfig) -> None:
+    """Tell `mfp.toolchain` what the user configured, on every load.
+
+    A side effect on another module, which wants justifying. `toolchain`
+    resolves yt-dlp/ffmpeg for callers that have never had a config object
+    to consult -- `stack.py` builds ffmpeg command lines in eight places and
+    ignored `binaries.ffmpeg` in all eight, which was a defect nobody had
+    named. Loading the config IS the moment the process learns what the user
+    chose, so it is the honest moment to say so; the alternative was eight
+    new parameters or eight call sites that keep being wrong.
+
+    Imported here rather than at module scope: `toolchain` imports THIS
+    module for `app_data_dir`, and a top-level import would be a cycle.
+    """
+    from mfp import toolchain
+
+    toolchain.set_overrides(config.binaries)
+
+
 def load_config(path: Path | None = None) -> AppConfig:
     """Load config from `path` (default: the standard appdata location).
 
@@ -256,12 +294,15 @@ def load_config(path: Path | None = None) -> AppConfig:
             # setting they had just changed, with no error to explain it.
             raw = p.read_text(encoding="utf-8-sig")
             data = json.loads(raw)
-            return AppConfig.model_validate(data)
+            cfg = AppConfig.model_validate(data)
+            _announce_binaries(cfg)
+            return cfg
         except (OSError, json.JSONDecodeError, ValidationError):
             pass  # fall through to rebuild-from-defaults
 
     cfg = default_config()
     save_config(cfg, p)
+    _announce_binaries(cfg)
     return cfg
 
 

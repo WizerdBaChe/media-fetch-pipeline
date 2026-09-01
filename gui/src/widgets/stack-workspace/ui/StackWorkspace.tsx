@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api } from "@/shared/api/client";
 import type { StackJob, StackSource } from "@/shared/api/types";
 import { isRunning, useStackStore } from "@/entities/stack-job/model/store";
+import { GuideButton } from "@/entities/onboarding/ui/FeatureGuide";
 import { RoiPicker } from "@/features/pick-roi/ui/RoiPicker";
 import {
   emptyForm,
@@ -230,6 +231,7 @@ export function StackWorkspace({
           ← 回到佇列
         </button>
         <h2 id="mfp-stack-title">引用長圖</h2>
+        <GuideButton id="quotestack" className="mfp-tx__guide" />
       </header>
 
       <div className="mfp-stack__body">

@@ -39,8 +39,10 @@ import type { DoctorCheck, DoctorReport } from "@/shared/api/types";
 import { POLICY_OPTIONS, useConfigStore } from "@/entities/config/model/store";
 import { GlossaryEditor } from "@/entities/glossary/ui/GlossaryEditor";
 import { revealPath } from "@/shared/lib/desktop";
+import { useOnboarding } from "@/entities/onboarding/model/store";
 import { LogControls } from "@/features/manage-logs/ui/LogControls";
 import { AsrSetupPanel } from "@/features/setup-asr/ui/AsrSetupPanel";
+import { ToolsPanel } from "@/features/setup-tools/ui/ToolsPanel";
 import { Button } from "@/shared/ui/Button";
 import { ErrorBoundary } from "@/shared/ui/ErrorBoundary";
 
@@ -121,8 +123,13 @@ function explain(check: DoctorCheck): string | null {
   if (check.ok) return null;
   const name = CHECK_LABELS[check.name] ?? check.name;
   if (!check.found) {
+    // The old sentence here read 「請安裝它，或在設定檔裡指定完整路徑」, which
+    // assumed the reader knew what a PATH was, where the config file lived,
+    // and which file on a release page to take. Since 需要的程式 sits at the
+    // top of this same category with a button, the honest instruction is to
+    // point at it.
     return check.required
-      ? `找不到 ${name}。請安裝它，或在設定檔裡指定完整路徑，然後按「重新檢查」。`
+      ? `找不到 ${name}。上面的「需要的程式」可以直接幫你安裝，裝好後按「重新檢查」。`
       : `這台機器上沒有 ${name}。只有部分來源需要它，其他功能不受影響。`;
   }
   if (!check.version) {
@@ -272,10 +279,21 @@ function GeneralCategory() {
   );
 }
 
-/** 診斷: what this machine is like right now, none of it adjustable here. */
+/** 診斷: what this machine is like right now.
+ *
+ *  「不可調整」 no longer opens it. 需要的程式 does, because it is the one
+ *  block here somebody can ACT on -- and because a person sent to 診斷 by
+ *  the missing-program banner has come to press exactly one button. The
+ *  read-only rows and the raw dependency table follow it; they answer
+ *  「這台機器是什麼狀況」, which is the question you ask second. */
 function DiagnosticsCategory() {
+  const resetGuides = useOnboarding((state) => state.resetAll);
+  const [guidesReset, setGuidesReset] = useState(false);
+
   return (
     <>
+      <ToolsPanel />
+
       <section className="mfp-settings__section mfp-settings__section--readonly">
         <div className="mfp-settings__section-head">
           <h3>不可調整</h3>
@@ -295,6 +313,27 @@ function DiagnosticsCategory() {
       </section>
 
       <DoctorPanel />
+
+      {/* The undo for a click that was too fast. Without it the honest
+          answer to 「剛剛那個說明可以叫回來嗎」 involves editing a JSON file
+          in %APPDATA%, which is not an answer. */}
+      <section className="mfp-settings__section" data-testid="guides-reset">
+        <div className="mfp-settings__section-head">
+          <h3>使用說明</h3>
+          <Button
+            onClick={() => {
+              void resetGuides().then(() => setGuidesReset(true));
+            }}
+          >
+            全部重新顯示
+          </Button>
+        </div>
+        <p className="mfp-settings__hint">
+          {guidesReset
+            ? "好了。下次打開每個工具時，第一次使用的說明會再出現一次。"
+            : "每個工具第一次打開時會有一段簡短說明，看過就不再出現。按這裡可以讓它們全部再出現一次。"}
+        </p>
+      </section>
     </>
   );
 }

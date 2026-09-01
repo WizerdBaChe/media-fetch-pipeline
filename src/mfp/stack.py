@@ -55,7 +55,7 @@ from mfp.errors import (
     StackError,
     UsageError,
 )
-from mfp.mediatool import run_tool, with_evidence
+from mfp.mediatool import missing_tool, resolved_command, run_tool, with_evidence
 
 try:  # pragma: no cover - import guard, exercised only on a broken install
     from PIL import Image, ImageChops, ImageDraw, ImageStat
@@ -223,13 +223,21 @@ def _run_progress(cmd: list[str], span: float, label: str, say, every: float,
     finishes is a stop button that does nothing on the runs that need one.
     """
     started = time.monotonic()
-    proc = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        stdin=subprocess.DEVNULL,
-    )
+    # The same resolution `run_tool` does, because this is the pass that
+    # takes minutes and it is not allowed to be the one call that finds a
+    # different ffmpeg -- or that reports a missing one as a traceback.
+    cmd = resolved_command(cmd)
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            stdin=subprocess.DEVNULL,
+        )
+    except FileNotFoundError as exc:
+        logs.ran(cmd[0], args=cmd[1:], code=None, ms=0)
+        raise missing_tool(cmd[0]) from exc
     tail: list[str] = []
     noise: list[str] = []
     last = -every

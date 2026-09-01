@@ -15,7 +15,7 @@
 | Python | ≥ 3.12 | `pyproject.toml` 寫死 |
 | Node.js | 建議 22 LTS | 前端與 Electron 各有自己的 `package.json` |
 | Chrome | 任一近期版本 | `probe` 用真瀏覽器取 HTML，不渲染 |
-| yt-dlp / ffmpeg | 近期版本 | 用 `mfp doctor` 確認 |
+| yt-dlp / ffmpeg | 近期版本 | `mfp tools` 印出狀態**與現在跑的是哪一份**；`mfp doctor` 只答有沒有 |
 
 語音辨識與翻譯**不在**上表：它是選用的能力，要另外準備一個 Python 引擎環境
 （`faster-whisper` / `CTranslate2`）與模型，由應用內的「語音辨識與翻譯」設定頁引導。
@@ -48,8 +48,8 @@ npm --prefix electron run dev
 ## 測試——四個 runner，其中兩個不在預設裡
 
 ```powershell
-.venv\Scripts\python.exe -m pytest -q          # 2,329 passed, 2 skipped
-cd gui && npm run check                        # eslint + tsc --noEmit + vitest 612
+.venv\Scripts\python.exe -m pytest -q          # 2,583 passed, 2 skipped @ 2026-09-02
+cd gui && npm run check                        # eslint + tsc --noEmit + vitest 689
 cd electron && npm run check                   # tsc + vitest
 scripts\test-all.bat                           # 上面三個一起跑，前面紅了後面照跑
 ```

@@ -17,6 +17,7 @@
 
 import { useEffect } from "react";
 import { pickDocumentFile, revealPath } from "@/shared/lib/desktop";
+import { GuideButton } from "@/entities/onboarding/ui/FeatureGuide";
 import { CLAUSE_LOSS_NOTE, LANGUAGES, mayLoseAClause } from "@/shared/lib/languages";
 import { useAsrSetup } from "@/features/setup-asr/model/store";
 import {
@@ -72,6 +73,7 @@ export function DocumentWorkspace({ onClose, onOpenSettings }: DocumentWorkspace
           ← 回到佇列
         </button>
         <h2>文件翻譯</h2>
+        <GuideButton id="translatedoc" className="mfp-tx__guide" />
       </header>
 
       <fieldset className="mfp-stack__section">

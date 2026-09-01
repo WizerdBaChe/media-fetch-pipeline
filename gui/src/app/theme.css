@@ -2967,3 +2967,255 @@ input[type="checkbox"] {
   color: var(--ink-muted);
   overflow-wrap: anywhere;
 }
+
+/* --- 需要的程式 (external tools) --------------------------------------- */
+
+.mfp-tools__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mfp-tools__row {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card-bg);
+}
+
+/* The missing ones read as missing at a glance, without colour being the
+   only carrier: the state word beside the name says it in text too. */
+.mfp-tools__row[data-state="missing"] {
+  border-color: var(--danger-soft);
+  background: #fff8f8;
+}
+
+.mfp-tools__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mfp-tools__state {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  font-size: 11.5px;
+  border-radius: 999px;
+}
+
+.mfp-tools__state[data-tone="ready"] {
+  color: var(--ok-ink);
+  background: var(--ok-bg);
+}
+
+.mfp-tools__state[data-tone="off"] {
+  color: var(--danger);
+  background: #fee2e2;
+}
+
+.mfp-tools__name {
+  font-weight: 600;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* The program's real name, kept small and beside the plain-language one:
+   it is a search term for later, not the label. */
+.mfp-tools__id {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--ink-muted);
+}
+
+.mfp-tools__purpose {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+.mfp-tools__where {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  color: var(--ink-muted);
+}
+
+.mfp-tools__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.mfp-tools__link {
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.mfp-tools__progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+/* The bar takes the room, the words take what they need. Without this the
+   flex row gives both half the width and a 「下載中 34%（36 / 106 MB）」
+   wraps onto two lines every time the number gets wider. */
+.mfp-tools__progress .mfp-progress {
+  flex: 1 1 auto;
+  min-width: 120px;
+}
+
+.mfp-tools__progress span {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.mfp-tools__note,
+.mfp-tools__loading {
+  margin: 10px 0 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--ink-muted);
+}
+
+/* --- the missing-program banner ---------------------------------------- */
+
+/* `align-items: flex-start` overrides `.mfp-banner`'s centring: this one
+   carries a list, and a centred button beside four lines of text floats in
+   the middle of nothing. */
+.mfp-banner__body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.mfp-banner:has(.mfp-banner__body) {
+  align-items: flex-start;
+  padding: 10px 14px;
+}
+
+.mfp-banner__list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.mfp-banner__progress,
+.mfp-banner__error {
+  font-size: 12px;
+}
+
+.mfp-banner__error {
+  font-weight: 600;
+}
+
+/* --- first-run and per-tool guides ------------------------------------- */
+
+/* Wider than a confirmation box and scrollable, because it holds the live
+   tools panel: three rows with buttons and a progress bar is taller than
+   any window this app is allowed to assume. */
+.mfp-firstrun {
+  width: min(620px, 94vw);
+  max-height: 88vh;
+  overflow-y: auto;
+}
+
+.mfp-firstrun__lede {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.mfp-firstrun__where {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.mfp-firstrun__where code {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.mfp-firstrun__note {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  color: var(--ink-muted);
+}
+
+.mfp-guide {
+  width: min(560px, 94vw);
+  max-height: 88vh;
+  overflow-y: auto;
+}
+
+.mfp-guide__lede {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.mfp-guide__steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.mfp-guide__steps li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.mfp-guide__steps strong {
+  font-size: 13px;
+}
+
+.mfp-guide__steps span {
+  color: var(--ink-muted);
+}
+
+/* The honest paragraph, marked as its own thing rather than as a fifth
+   step: it decides whether somebody should spend the next twenty minutes,
+   and a step 5 is a step people skim. */
+.mfp-guide__caveat {
+  margin: 12px 0 0;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-radius: var(--radius);
+}
+
+.mfp-guide__reopen {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  color: var(--ink-muted);
+}
+
+/* Pushed to the end of the workspace header so it sits opposite 回到佇列,
+   which is where a secondary control belongs in a row whose primary action
+   is on the left. */
+.mfp-tx__guide {
+  margin-left: auto;
+}

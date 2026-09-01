@@ -37,6 +37,7 @@ Nothing in this module writes `promoted_to` -- the second pass is not built
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from dataclasses import asdict, dataclass
@@ -56,7 +57,11 @@ __all__ = [
 #: and a stale one can never be read against a different tree.
 CACHE_FILE = "_index.json"
 
-SCHEMA_VERSION = 1
+#: 2 since 2026-09-02: the cache carries a `fingerprint` and staleness is no
+#: longer decided by comparing timestamps. A version-1 cache is rejected and
+#: rebuilt on the first read, which is what every other malformed case
+#: already does.
+SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -87,6 +92,59 @@ def _entry_for(folder: Path) -> IndexEntry | None:
         tier=runs.tier_of(marker),
         promoted_to=promoted if isinstance(promoted, str) and promoted else None,
     )
+
+
+def _fingerprint(output_root: str | Path) -> str | None:
+    """What every run marker in the store looks like right now.
+
+    This replaces a timestamp comparison, and the reason is a defect that
+    took from 2026-08-31 to 2026-09-02 to catch. `_cached` used to ask
+    whether any marker was mtime-NEWER than the cache file. Windows updates
+    file times on the system clock tick -- about 15.6 ms -- so a run folder
+    written in the same tick as the cache has an mtime EQUAL to it, the
+    strict `>` is false, and a run that exists on disk is invisible to
+    `mfp analyzed` until something else happens to invalidate the cache. It
+    surfaced as an intermittent test failure whose identity was unknown for
+    two days, because only a test creates two runs inside 15 ms.
+
+    A fingerprint has no clock in it. Folder identity is part of the hash,
+    so a NEW run changes the answer whatever its timestamp says, which is
+    the case that was broken.
+
+    Costs nothing extra: the old check already walked and stat-ed every
+    marker, and only the comparison changed.
+
+    `None` means the store could not be read. Deliberately not an empty
+    hash: two unreadable walks would then agree with each other and a cache
+    written during one would be believed during the other.
+
+    Roots are identified by POSITION rather than by path, so a store that is
+    moved wholesale -- cache and all -- is still current when it arrives.
+    """
+    digest = hashlib.sha256()
+    for position, base in enumerate(runs.store_roots(output_root)):
+        if not base.is_dir():
+            continue
+        try:
+            folders = sorted(base.iterdir())
+        except OSError:
+            return None
+        for folder in folders:
+            marker = folder / runs.MARKER
+            try:
+                if not marker.is_file():
+                    # A legacy root holds loose files too, and `_walk` skips
+                    # them for the same reason. What is not walked must not
+                    # be fingerprinted, or the two disagree about what a
+                    # change is.
+                    continue
+                stat = marker.stat()
+            except OSError:
+                return None
+            digest.update(
+                f"{position}\0{folder.name}\0{stat.st_mtime_ns}\0{stat.st_size}\n".encode()
+            )
+    return digest.hexdigest()
 
 
 def unreadable_markers(output_root: str | Path) -> int:
@@ -126,6 +184,12 @@ def rebuild(output_root: str | Path, *, say=None) -> list[IndexEntry]:
     `say` receives one line when markers were skipped. The caller decides
     where that goes; nothing here prints on its own.
     """
+    # Taken BEFORE the walk, and the order is the whole safety of it: a run
+    # created while the walk is in progress then leaves a fingerprint that
+    # predates the entries, so the next read sees a mismatch and pays for
+    # another walk. Taken afterwards it would do the opposite -- describe a
+    # store the entries do not cover, and be believed.
+    fingerprint = _fingerprint(output_root)
     entries, skipped = _walk(output_root)
     if skipped and say is not None:
         say(
@@ -140,6 +204,7 @@ def rebuild(output_root: str | Path, *, say=None) -> list[IndexEntry]:
             json.dumps(
                 {
                     "schemaVersion": SCHEMA_VERSION,
+                    "fingerprint": fingerprint,
                     "entries": [entry.as_row() for entry in entries],
                 },
                 ensure_ascii=False,
@@ -156,31 +221,30 @@ def rebuild(output_root: str | Path, *, say=None) -> list[IndexEntry]:
 
 
 def _cached(output_root: str | Path) -> list[IndexEntry] | None:
-    """The cache, if it exists and is no older than the newest run marker.
+    """The cache, if it still describes the store it was written from.
 
     Returns None for missing, unparseable, wrong-schema and stale alike --
     they all have the same remedy, and giving them separate handling is how a
     cache acquires a repair path and becomes a second source of truth.
+
+    "Stale" is decided by `_fingerprint`, not by comparing the cache file's
+    mtime against the markers'. See that function for the two days spent on
+    the difference.
     """
     path = runs.home(output_root) / CACHE_FILE
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-        cached_at = path.stat().st_mtime
     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return None
     if not isinstance(payload, dict) or payload.get("schemaVersion") != SCHEMA_VERSION:
         return None
 
-    for base in runs.store_roots(output_root):
-        if not base.is_dir():
-            continue
-        for folder in base.iterdir():
-            marker = folder / runs.MARKER
-            try:
-                if marker.is_file() and marker.stat().st_mtime > cached_at:
-                    return None
-            except OSError:
-                return None
+    current = _fingerprint(output_root)
+    # `current is None` on its own, before the comparison: a store that
+    # cannot be read must never agree with a cache written from one that
+    # could not be read either.
+    if current is None or payload.get("fingerprint") != current:
+        return None
 
     rows = payload.get("entries")
     if not isinstance(rows, list):

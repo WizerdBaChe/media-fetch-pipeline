@@ -8,7 +8,6 @@ adapter (Instagram, yt-dlp, gallery-dl) is implemented here.
 
 from __future__ import annotations
 
-import shutil
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
@@ -118,20 +117,30 @@ def standard_fetch(
     be silent: two copies of "resolve ffmpeg, apply policy, transfer" drift
     into one that forgets the §14.1 report, and nothing fails.
     """
-    # `which` on BOTH branches, and that is the whole point: a configured
-    # path used to be trusted just for being a non-empty string, so a
-    # `binaries.ffmpeg` pointing at a file that does not exist reported
-    # `mux_available=True`, let the policy pick a video-only rendition,
-    # transferred all 9.8 MB of it, and only then died in the muxer with
-    # `[WinError 2]` -- no file, no degradedReason, exit 1. Precisely the
-    # outcome the paragraph above promises does not happen.
+    # One resolver, because this value is BOTH the capability the policy
+    # reads and the executable `download_manifest` hands to the muxer -- and
+    # because D-151 says a call site may not re-derive the answer. This one
+    # still did: a configured `binaries.ffmpeg` went through `shutil.which`
+    # here and NOWHERE else, so a setting that named no program disabled
+    # muxing outright, while `mediatool.resolved_command` -- the same
+    # question asked by `stack` and `captions` -- fell through to the managed
+    # copy and worked. One stale setting, two behaviours, and the one that
+    # silently degrades a YouTube download was not the visible one.
     #
-    # `shutil.which` is the right primitive rather than `Path.exists()`: it
-    # checks executability, resolves a bare name against PATH, and applies
-    # PATHEXT, so a configured `...\bin\ffmpeg` with no extension still
-    # resolves on Windows instead of being called missing.
-    configured = ctx.config.binaries.ffmpeg
-    ffmpeg = shutil.which(configured) if configured else shutil.which("ffmpeg")
+    # The 2026-08-17 defect this replaces stays closed, and by the same
+    # primitive: `toolchain.resolution` checks a configured path with
+    # `shutil.which` (executability, PATHEXT, a bare name against PATH) and
+    # falls THROUGH when nothing answers, so `mux_available=True` can no
+    # longer come from a string that names no file. What changed is only
+    # what happens NEXT -- a working copy elsewhere is now used instead of
+    # the run being degraded around a setting that is merely wrong.
+    #
+    # `binaries=` rather than the module-level overrides: `ctx.config` is
+    # this call's authority on the question, and reading a global here would
+    # make the answer depend on whether something else loaded a config first.
+    from mfp import toolchain
+
+    ffmpeg = toolchain.resolve("ffmpeg", binaries=ctx.config.binaries)
     apply_policy_to_manifest(
         manifest,
         policy,

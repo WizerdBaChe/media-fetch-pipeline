@@ -39,6 +39,16 @@ export const ERROR_PRESENTATION: Record<string, ErrorPresentation> = {
   budget_exhausted: { label: "等待配額", recovery: "wait" },
   rate_limited: { label: "被限流，等待中", recovery: "wait" },
   dependency_missing: { label: "缺少相依工具", recovery: "doctor" },
+  // Distinct from `dependency_missing` on purpose: that one means the tool
+  // is not here, this one means fetching it did not work -- almost always
+  // something outside this machine (a moved release page, a checksum that
+  // did not match, a proxy). Retry first; the manual download link in
+  // 需要的程式 is the road that always exists.
+  tool_install_failed: {
+    label: "自動安裝失敗",
+    recovery: "retry",
+    hint: "多半是網路或來源端的問題；也可以在「設定 → 診斷 → 需要的程式」用手動下載連結",
+  },
   media_transfer_failed: {
     label: "下載失敗",
     recovery: "retry",

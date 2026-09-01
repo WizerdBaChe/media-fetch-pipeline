@@ -1,6 +1,6 @@
 ---
 name: media-fetch-pipeline
-description: Download media from a public Instagram, Threads, YouTube, X or Bilibili post URL using the local `mfp` CLI. Use when the user pastes a post link and wants the images or video saved, asks to archive a post, or asks what quality is available before downloading. Not for accounts, feeds, stories, or anything behind a login.
+description: Download media from a public Instagram, Threads, YouTube, X or Bilibili post URL using the local `mfp` CLI. Use when the user pastes a post link and wants the images or video saved (「幫我把這篇貼文的影片/圖片存下來」「封存這篇貼文」), asks to archive a post, or asks what quality is available before downloading (「這篇有哪些畫質可選」). Not for accounts, feeds, stories, or anything behind a login (不爬帳號/feed/限時動態，永不登入).
 ---
 
 # media-fetch-pipeline
@@ -13,7 +13,9 @@ a parse silently succeeds on the wrong thing.
 ## When this applies
 
 The user gives you a **single post URL** (or a few) and wants the media.
-Supported: `instagram.com/p|reel/…`, `threads.com/@user/post/…` and its
+Supported: `instagram.com/p|reel|reels|tv/…` — with or without a
+`/<username>/` in front of it, which is the spelling Instagram gives you
+when the post was opened from a profile — `threads.com/@user/post/…` and its
 `/share/…` links, `youtube.com`, `x.com`, `bilibili.com`, and — through
 yt-dlp — most other video hosts.
 
@@ -179,6 +181,22 @@ either.
 behaviour whatsoever. Do not tell a user to install it, and do not read its
 absence — anywhere, including in an older checklist that still asks for it —
 as a fault.
+
+### When yt-dlp or ffmpeg is the thing that is missing
+
+```bash
+mfp tools
+```
+
+Prints each program, its version, and **which copy is being run** —
+resolution is configured → installed by mfp → PATH, and a machine can hold
+all three. `mfp tools --install yt-dlp` fetches one, checks it against the
+publisher's digest and wires it up, which also fixes a yt-dlp too old for
+YouTube without editing any path. It **transfers from the internet** (18 MB
+for yt-dlp, ~106 MB for ffmpeg), so it is the user's decision, not yours:
+say the option exists and wait. Never inside a retry loop. Chrome is
+deliberately not installable this way — when it is what is missing, say so
+and stop.
 
 ## Where this file came from, and what is on the machine
 
