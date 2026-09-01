@@ -24,6 +24,7 @@ git-ignored. Run it from the project root:
         scripts\\mfp.spec
 """
 
+import glob
 import os
 
 ROOT = os.path.abspath(os.path.join(SPECPATH, os.pardir))
@@ -93,6 +94,21 @@ EXCLUDES = ["pytest", "_pytest", "PIL._avif"]
 # whole thing this arrangement exists to avoid.
 DATAS = [
     (os.path.join(ROOT, "skill", "SKILL.md"), "agent"),
+    # The 延伸工具 contracts, split out of SKILL.md in M5 (ruling R9).
+    #
+    # Globbed, which contradicts the rule stated for `asr/*.py` above -- so
+    # the reason is written down rather than left to look like an oversight.
+    # That rule exists because `asr/` holds SOURCE, and shipping whatever
+    # somebody drops there is how an installer grows a file nobody decided
+    # to include. This directory holds one kind of thing and only that kind:
+    # an agent contract, every one of which must ship or `agent-guide
+    # --extension` prints「the packaged guide is missing」on a user's machine
+    # and nowhere else. `agent.EXTENSIONS` is the list that decides what
+    # exists; a glob here just keeps the bundle from disagreeing with it.
+    *[
+        (path, os.path.join("agent", "extensions"))
+        for path in glob.glob(os.path.join(ROOT, "skill", "extensions", "*.md"))
+    ],
     (os.path.join(ROOT, "asr", "runner.py"), "asr"),
     (os.path.join(ROOT, "asr", "translate_runner.py"), "asr"),
     (os.path.join(ROOT, "asr", "fetch_model.py"), "asr"),

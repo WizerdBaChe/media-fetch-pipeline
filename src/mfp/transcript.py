@@ -241,7 +241,7 @@ def resolve(
             say(f"already have these captions: {cached[0].name} (--refresh to re-fetch)")
             return cached[0], "automatic" if is_auto else "written", key, title
 
-    run = runs.open_run(output_root, target, stem=stem, kind="url")
+    run = runs.open_run(output_root, target, stem=stem, kind="url", verb='transcript')
     say(f"fetching {'automatic' if is_auto else 'written'} {key} captions")
     found = fetch_captions(
         target, key, is_auto, run.subtitles, stem=stem, executable=yt_dlp
@@ -311,7 +311,7 @@ def _recognize_local(
 
     # Created only now. A run folder that exists is a claim that an analysis
     # happened, and everything above this line can still refuse to start one.
-    run = runs.open_run(output_root, path, stem=stem, kind="media")
+    run = runs.open_run(output_root, path, stem=stem, kind="media", verb='transcript')
     outcome = asr.recognize(
         path,
         out_dir=run.root,

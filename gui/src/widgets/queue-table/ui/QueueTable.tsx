@@ -161,13 +161,16 @@ export function QueueTable({ tab, onUseExtension }: QueueTableProps) {
                             ? "這個項目沒有可用的檔案"
                             : undefined
                       }
-                      // A row hands a tool the folder it downloaded into,
-                      // and 文件翻譯 takes a .txt/.md the user names -- so
-                      // it is offered from the header and disabled here,
-                      // with the reason, rather than opened on something it
-                      // would refuse.
+                      // A row hands a tool the folder it downloaded into.
+                      // 文件翻譯 takes a .txt/.md the user names and 貼文解說
+                      // takes a post URL, so both are offered from the header
+                      // and disabled here WITH THE REASON, rather than opened
+                      // on something they would refuse. Disabled and not
+                      // hidden: a control that appears and disappears teaches
+                      // nobody where it lives (D-80).
                       unavailable={{
                         translatedoc: "文件翻譯要選一份 .txt／.md 文件，請從上方的「延伸工具」開啟",
+                        brief: "貼文解說要貼一個貼文網址，請從上方的「延伸工具」開啟",
                       }}
                       onPick={(id) => onUseExtension(id, task.outputDir ?? undefined)}
                     />

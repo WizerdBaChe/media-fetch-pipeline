@@ -295,6 +295,36 @@ def resolve_output_path(
     return _ensure_within_root(candidate, root)
 
 
+def resolve_in_post_dir(post_dir: str | Path, filename: str) -> Path:
+    """`<postDir>/<filename>`, with every guarantee `resolve_output_path` gives.
+
+    Used when the caller already KNOWS the directory -- `brief` fetches into
+    an analysis run (D-143), which is one folder rather than the download
+    tree's `<platform>/<author>/<date>_<postId>` ladder. The layout differs;
+    the safety must not.
+
+    So `filename` is still untrusted here, for the same reason as there: its
+    extension comes from remote `media_type` data (PSM Batch 1 §5.4 TRAP-2),
+    and it is routed through `_sanitize_filename()`. Containment inside
+    `post_dir` is still enforced unconditionally, and a path over the length
+    cap is still an error rather than a truncation -- two posts resolving to
+    one name is the failure this refuses to trade away.
+
+    There is no length LADDER here because there is nothing to degrade: the
+    ladder existed to shorten `<date>_<postId>`, and this layout has no such
+    component. An overlong path means the run folder's name plus the output
+    root is already too long, which the caller must fix rather than hide.
+    """
+    base = Path(post_dir)
+    candidate = base / _sanitize_filename(filename)
+    if len(str(candidate)) > _MAX_FULL_PATH_LENGTH:
+        raise PathTooLong(
+            f"path is {len(str(candidate))} characters, over the "
+            f"{_MAX_FULL_PATH_LENGTH} limit; choose a shorter output root"
+        )
+    return _ensure_within_root(candidate, base)
+
+
 def path_degradation(output_root: str | Path, *, platform: str, author: str | None,
                      date: str, post_id: str, filename: str) -> Literal["L0", "L1"]:
     """Which rung `resolve_output_path()` would use, for `manifest.json`.

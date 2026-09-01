@@ -37,8 +37,7 @@ import {
   describeTranslate,
   useTranslate,
 } from "@/features/translate-transcript/model/store";
-import { CorrectionPanel } from "@/features/correct-transcript/ui/CorrectionPanel";
-import { TidyPanel } from "@/features/tidy-transcript/ui/TidyPanel";
+import { RefinePanel } from "@/features/refine-transcript/ui/RefinePanel";
 
 export interface TranscriptHandoff {
   target: string;
@@ -675,22 +674,17 @@ export function TranscriptWorkspace({
             )}
           </div>
 
-          {/* Term correction, under the transcript and under translation.
-              Third in the row for the same reason translation is second: it
-              is something asked for once a transcript is in front of the
-              reader, and nothing here corrects as a side effect of
-              transcribing. Unlike translation it needs no model and no
-              engine, so it is offered unconditionally -- an empty glossary
-              produces no suggestions and says so. */}
-          <CorrectionPanel source={transcript.source} onReveal={(path) => void reveal(path)} />
+          {/* 校正與整理，一個面板。第三順位的理由跟翻譯是第二順位一樣：
+              這是逐字稿到了讀者面前之後才會被要求的事，而且沒有任何東西
+              會在辨識的當下順便校正。不像翻譯，它不需要模型也不需要引擎，
+              所以無條件提供——空的詞庫不會產生建議，空的語助詞清單不會刪
+              掉任何東西，而它們都會說出來。
 
-          {/* Fourth, and last for a reason: it is the only one that DELETES.
-              A reader who has read, translated and corrected is the one in a
-              position to decide that the 嗯 can go -- and this is offered
-              unconditionally, like correction and unlike translation, because
-              it needs no engine and no model. An empty filler list removes
-              nothing and says so. */}
-          <TidyPanel source={transcript.source} onReveal={(path) => void reveal(path)} />
+              兩段在同一個面板裡，是因為它們從來不是互斥的：分成兩個面板
+              時，兩個都指著原稿，做完哪一個都只會拿到一份缺了另一半的
+              兄弟檔。順序不是使用者的選擇（先校正再整理），理由寫在
+              `mfp.refine` 裡。 */}
+          <RefinePanel source={transcript.source} onReveal={(path) => void reveal(path)} />
 
           <ol className="mfp-tx__lines" data-testid="transcript-lines">
             {lines.map((line, index) => (

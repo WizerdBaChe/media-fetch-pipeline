@@ -106,6 +106,62 @@ def read_skill() -> str:
         raise MfpError(f"the packaged Skill is missing at {path}: {exc}") from exc
 
 
+#: One 延伸工具, one file. Ruling R9: the core contract stays short enough to
+#: be read every time, and a tool is read only when the task is that tool's.
+#: 658 lines teaching nineteen verbs was the symptom -- `brief` was ~70 of
+#: them, and an agent explaining one post read all 658.
+EXTENSIONS: tuple[str, ...] = ("quotestack", "brief", "transcript", "translatedoc")
+
+
+def extension_path(name: str) -> Path:
+    """Where one extension's contract lives, beside `SKILL.md`."""
+    return skill_path().parent / "extensions" / f"{name}.md"
+
+
+def read_extension(name: str) -> str:
+    """One extension's contract.
+
+    Refuses an unknown name by listing the real ones rather than returning
+    an empty string: a caller that asked for the wrong tool needs to be told
+    which tools exist, and a silent empty guide is how a build with the data
+    payload left out looks exactly like a working one.
+    """
+    if name not in EXTENSIONS:
+        raise MfpError(
+            f"no such extension {name!r}; this build has "
+            + ", ".join(EXTENSIONS)
+        )
+    path = extension_path(name)
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise MfpError(f"the packaged guide is missing at {path}: {exc}") from exc
+
+
+def _stale_extensions(skill_dir: Path) -> list[str]:
+    """Which extension files under `skill_dir` do not match this build.
+
+    Every one of them, not only the ones already on disk: a build that gained
+    a fifth tool must place it, or the directory silently teaches four.
+    """
+    stale: list[str] = []
+    for name in EXTENSIONS:
+        try:
+            wanted = read_extension(name)
+        except MfpError:
+            continue  # a payload-less build reports that elsewhere
+        landed = skill_dir / "extensions" / f"{name}.md"
+        if not landed.exists() or _read(landed) != wanted:
+            stale.append(name)
+    return stale
+
+
+def _write_extensions(skill_dir: Path) -> None:
+    """Put this build's extension contracts beside the Skill."""
+    for name in _stale_extensions(skill_dir):
+        _write(skill_dir / "extensions" / f"{name}.md", read_extension(name))
+
+
 @dataclass(frozen=True)
 class Target:
     """One place a Skill can be registered.
@@ -240,12 +296,22 @@ def plan_install(key: str, override: Path | None = None) -> Plan:
     if target.kind == "directory":
         destination = path / "SKILL.md"
         wanted = read_skill()
+        stale = _stale_extensions(path)
         if not destination.exists():
             action, detail = "create", f"write the Skill to {destination}"
-        elif _read(destination) == wanted:
-            action, detail = "unchanged", f"{destination} already matches this build"
-        else:
+        elif _read(destination) != wanted:
             action, detail = "update", f"replace {destination} with this build's Skill"
+        elif stale:
+            # The extension files were registered by the M5 split and then
+            # maintained by nothing: `agent-register` wrote SKILL.md alone, so
+            # a directory could sit there reporting "already matches this
+            # build" while `extensions/brief.md` taught last month's contract.
+            # A stale contract is worse than an absent one -- an agent reading
+            # it gets flags that do not exist and codes that do.
+            action = "update"
+            detail = f"refresh {len(stale)} extension file(s) under {path / 'extensions'}"
+        else:
+            action, detail = "unchanged", f"{destination} already matches this build"
         return Plan(target.key, target.kind, destination, action, detail)
 
     existing = _read(path)
@@ -285,6 +351,17 @@ def apply_plan(plan: Plan, key: str, override: Path | None = None) -> Plan:
     if target.kind == "directory":
         if plan.action == "remove":
             plan.path.unlink(missing_ok=True)
+            # The extension files go with it. Leaving them behind would leave
+            # a skills directory holding four tool contracts and no Skill --
+            # which reads, to anything that walks the folder, like a partially
+            # installed product rather than a removed one.
+            extensions = plan.path.parent / "extensions"
+            for name in EXTENSIONS:
+                (extensions / f"{name}.md").unlink(missing_ok=True)
+            try:
+                extensions.rmdir()
+            except OSError:
+                pass
             # Only if we are the last thing in it: a skills root the user
             # keeps other skills in is not ours to tidy.
             try:
@@ -293,6 +370,7 @@ def apply_plan(plan: Plan, key: str, override: Path | None = None) -> Plan:
                 pass
             return plan
         _write(plan.path, read_skill())
+        _write_extensions(plan.path.parent)
         return plan
 
     existing = _read(path)

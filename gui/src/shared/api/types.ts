@@ -681,19 +681,21 @@ export interface TidyRemoval {
   end: number;
 }
 
+export interface TidySummary {
+  cues: number;
+  removed: number;
+  kept: number;
+  removedChars: number;
+  totalChars: number;
+  share: number;
+}
+
 /** 整理版**會**刪掉什麼。什麼都還沒寫。 */
 export interface TidyOffer {
   source: string;
   cues: TranscriptCue[];
   removals: TidyRemoval[];
-  summary: {
-    cues: number;
-    removed: number;
-    kept: number;
-    removedChars: number;
-    totalChars: number;
-    share: number;
-  };
+  summary: TidySummary;
   /** 清單上有幾個詞。0 代表不可能刪掉任何東西——不說清楚的話，
    *  「沒有東西可刪」看起來會像壞掉而不是還沒設定。 */
   fillerTerms: number;
@@ -767,6 +769,41 @@ export interface CorrectionWritten {
   original: string;
   written: Record<string, string>;
   applied: number;
+}
+
+/* --- 一次做完：校正＋整理 (`/v1/transcript/refine`) ----------------------- */
+
+/** 管線上的一段。順序不在這裡決定——送什麼順序上去都一樣，
+ *  伺服器一律照 `refine.ORDER`（先校正、後整理）跑。 */
+export type RefineStage = "correct" | "tidy";
+
+/** 勾起來的那幾段**會**做什麼。什麼都還沒寫。 */
+export interface RefineOffer {
+  source: string;
+  /** 實際會跑的順序，不一定是送上去的順序。 */
+  stages: RefineStage[];
+  /** 原稿。 */
+  cues: TranscriptCue[];
+  /** 校正之後的樣子——下面那些 `removals` 是對著它算的，也是讀者
+   *  真正在決定的東西。沒有勾校正時就等於 `cues`。 */
+  corrected: TranscriptCue[];
+  proposals: CorrectionProposal[];
+  diff: string;
+  removals: TidyRemoval[];
+  /** 沒有勾整理時是空物件。 */
+  summary: Partial<TidySummary>;
+  phoneticKeys: boolean;
+  glossaryEntries: number;
+  fillerTerms: number;
+}
+
+export interface RefineWritten {
+  /** 沒有被寫到的那個檔。「你的原稿還在」是整個流程立足的那句話。 */
+  original: string;
+  stages: RefineStage[];
+  written: Record<string, string>;
+  corrected: number;
+  removed: number;
 }
 
 export interface GlossaryEntry {
@@ -884,4 +921,131 @@ export interface AsrCatalogueEntry {
   bytes: number;
   recommended: boolean;
   installed: boolean;
+}
+
+
+/* --- 延伸工具：貼文解說 (`/v1/brief`) ------------------------------------ */
+
+/** A picture the post carries, already on disk.
+ *
+ *  `width`/`height` describe the FILE and are null when nothing could
+ *  resolve them -- the file is fine, the metadata is not. */
+export interface BriefImage {
+  index: number;
+  path: string;
+  bytes: number;
+  width: number | null;
+  height: number | null;
+  altText: string | null;
+}
+
+/** An item of the post that is NOT a picture, and why.
+ *
+ *  Every item is in `images` or here, which is how a reader knows a video
+ *  was in the post at all. */
+export interface BriefSkipped {
+  index: number;
+  kind: string;
+  reason: string;
+  detail: string | null;
+}
+
+/** The author's own words.
+ *
+ *  Its own block, and the SHAPE is the warning (INV-B6): nobody reaches a
+ *  caption without passing through the word `untrusted`. Whoever renders
+ *  this must present it as a quotation from a stranger and must never treat
+ *  it as an instruction. */
+export interface BriefUntrusted {
+  caption: string | null;
+  altText: Record<string, string | null>;
+  /** The file beside the images holding everything above, with a first line
+   *  that says whose words they are. `null` when the post had no text.
+   *
+   *  In here rather than beside `analysisPath`, deliberately: a path is a way
+   *  of reaching the author's words, and INV-B6 is about there being exactly
+   *  one door with a sign on it. */
+  textPath: string | null;
+}
+
+/** A video that WAS transferred, because the caller asked for it.
+ *
+ *  Its own list rather than a row in `images`: an agent iterating `images`
+ *  reads them, and nothing can read a video. This is the file you run
+ *  逐字稿 over. */
+export interface BriefVideo {
+  index: number;
+  path: string;
+  bytes: number;
+  width: number | null;
+  height: number | null;
+}
+
+export interface BriefPost {
+  platform: string;
+  url: string;
+  id: string;
+  author: string | null;
+  timestamp: string | null;
+  /** The analysis run. Pass it back verbatim to save an explanation. */
+  postDir: string;
+}
+
+export interface BriefExisting {
+  entries: number;
+  lastWrittenAt: string | null;
+}
+
+export interface BriefBudget {
+  platform: string;
+  requestsUsed: number;
+  requestsRemaining: number;
+  nextAllowedAt?: string | null;
+}
+
+/** What `/v1/brief` returns.
+ *
+ *  There is no field here holding prose ABOUT the pictures, and there will
+ *  not be: this tool runs no model (D-88, `INV-P8`), and the explanation is
+ *  written by whoever looked. */
+export interface BriefPackage {
+  schemaVersion: number;
+  lane: string;
+  post: BriefPost;
+  untrusted: BriefUntrusted;
+  images: BriefImage[];
+  /** Empty unless `withVideo` was asked for; then every video is here and
+   *  none is in `skipped`. */
+  videos: BriefVideo[];
+  skipped: BriefSkipped[];
+  /** Where an explanation would be written. Nothing is written until save. */
+  analysisPath: string;
+  existing: BriefExisting | null;
+  budget: BriefBudget;
+  /** True means the post was already on disk and no platform request was
+   *  made -- asking again is free. */
+  reused: boolean;
+  degraded: boolean;
+  degradedReason: string | null;
+}
+
+export interface BriefRequest {
+  url: string;
+  lane?: string;
+  refresh?: boolean;
+  /** Fetch the post's video(s) too, so 逐字稿 has a file to run over.
+   *  Costs bandwidth and is off unless asked for. */
+  withVideo?: boolean;
+}
+
+export interface BriefSaveRequest {
+  post: string;
+  body: string;
+  lane?: string;
+  question?: string;
+}
+
+export interface BriefSaved {
+  analysisPath: string;
+  entries: number;
 }

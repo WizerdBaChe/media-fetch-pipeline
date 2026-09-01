@@ -11,6 +11,7 @@ from __future__ import annotations
 import shutil
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Collection
 
 from mfp.budget import FetchBudgetGovernor
@@ -57,6 +58,17 @@ class FetchContext:
     #: before it could see languages at all. Setting it is how you ask for
     #: a dub on purpose; a video with one audio track ignores it.
     audio_language: str | None = None
+    #: Land this fetch in ONE named folder instead of the download tree.
+    #:
+    #: Set only by verbs whose transfer is analysis input rather than a
+    #: manual download -- `brief` (D-143) and `stack`, whose working video
+    #: is a means and not the product. `INV-P1` is what this exists for:
+    #: before it, a `stack` video and a downloaded one were the same bytes
+    #: in the same tree with nothing on disk able to tell them apart.
+    #:
+    #: None keeps the download-tree layout, which stays correct for `fetch`
+    #: -- and `fetch` is the only verb that should ever leave it None.
+    post_dir: Path | None = None
 
 
 class PlatformAdapter(ABC):
@@ -132,6 +144,7 @@ def standard_fetch(
     return download_manifest(
         manifest,
         output_root=ctx.output_root,
+        post_dir=ctx.post_dir,
         budget=FetchResultBudget(
             platform=platform,
             requests_used=snapshot.requests_used_hour,

@@ -204,6 +204,29 @@ class QueueLocked(MfpError):
     exit_code = 1
 
 
+class OutsideStore(MfpError):
+    """An analysis artifact would have landed outside every analysis store.
+
+    `INV-P3`. `--out` may move the store; it may not take an analysis product
+    out of one. Two reasons it is refused rather than allowed:
+
+    * the download tree is under the output root, so an unchecked `--out`
+      lets analysis output land among manual downloads -- the exact mixing
+      D-142 exists to end, and it is not detectable afterwards because
+      provenance is not recoverable from a file (`INV-P10`);
+    * an artifact outside every store is invisible to `mfp.index`, which
+      would then be a partial map that reads as a complete one. That was
+      D-136's own objection to indexing at all, and this refusal is what
+      answers it.
+
+    Exit 3 with the other "this input cannot be used" failures: the argument
+    is wrong, not the environment.
+    """
+
+    error_code = "outside_store"
+    exit_code = 3
+
+
 class PathTooLong(MfpError):
     """The resolved output path still exceeds the length cap after the
     degradation ladder has been exhausted (PSM Batch 1 §8.1).
@@ -307,6 +330,7 @@ TAXONOMY: dict[str, type[MfpError]] = {
         LinkExpired,
         PathEscape,
         PathTooLong,
+        OutsideStore,
         QueueLocked,
         # The quote-stack / transcript family. Rows here since 2026-08-30,
         # when these classes moved out of `stack.py` -- not because they
@@ -348,7 +372,12 @@ CLIENT_ERROR_CODES: frozenset[str] = frozenset({"server_unreachable"})
 #: **iff** no router in `server/app.py` can reach the code that raises it.
 #: Give `brief` an HTTP route and this entry must go, or the GUI will have no
 #: presentation for a code it can now receive.
-CLI_ONLY_ERROR_CODES: frozenset[str] = frozenset({"analysis_write_failed"})
+#: Empty since M4 (2026-09-01), when `brief` gained HTTP routes and
+#: `analysis_write_failed` stopped being CLI-only. Kept rather than deleted:
+#: the membership rule is「this code has no route that can emit it」, and a
+#: constant that exists with nothing in it states that fact where the next
+#: person adding a CLI-only failure will look.
+CLI_ONLY_ERROR_CODES: frozenset[str] = frozenset()
 
 
 def all_wire_error_codes() -> frozenset[str]:

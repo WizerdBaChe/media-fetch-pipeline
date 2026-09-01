@@ -51,6 +51,26 @@ body {
   line-height: 1.5;
 }
 
+/* A radio and a checkbox paint a glyph of a FIXED size. Put either one in a
+   flex container and the ELEMENT stretches while the glyph stays 13px and
+   centres itself in the new box -- so the box the DOM reports is not where
+   the reader's eye lands, and every box-based assertion in `e2e/` rules on a
+   rectangle nobody can see. That is the same shape as the ghost button in
+   `queue-geometry.spec.ts`, in the other direction.
+
+   Measured 2026-09-02, before this rule existed: 貼文解說's two lane radios
+   were 64px and 88px WIDE for a 13px glyph (a column parent), and 引用長圖's
+   three were 36px TALL for the same glyph (a row parent). One of them is the
+   reported 跑版 and the other had never been noticed.
+
+   Both properties are inert outside a flex container, so this cannot move
+   anything that is not already being stretched. */
+input[type="radio"],
+input[type="checkbox"] {
+  align-self: start;
+  flex: none;
+}
+
 .mfp-mono {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -1640,10 +1660,25 @@ body {
   padding: 0 4px;
 }
 
+/* One choice: the CONTROL first, its label beside it. The opposite flow to
+   `.mfp-stack__field`, which stacks a label ABOVE its control -- and neither
+   name says which way it runs, which is exactly how 貼文解說 came to draw a
+   radio group with `__field` and put the circles on their own line above the
+   words. Pick by this sentence, not by the name. */
 .mfp-stack__choice {
   display: flex;
   gap: 8px;
   padding: 4px 0;
+}
+
+/* Several of them side by side. A primitive rather than a per-panel copy:
+   `--settings-label` above records what happens without one -- four blocks
+   each guessing the same number by eye. */
+.mfp-stack__choice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 4px;
 }
 
 .mfp-stack__choice em,

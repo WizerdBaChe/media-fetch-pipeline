@@ -166,6 +166,7 @@ def build_context(
     on_progress: ProgressCallback | None = None,
     allow_silent_video: bool = False,
     audio_language: str | None = None,
+    post_dir: Path | None = None,
 ) -> FetchContext:
     return FetchContext(
         budget=governor if governor is not None else FetchBudgetGovernor(config),
@@ -175,6 +176,7 @@ def build_context(
         on_progress=on_progress,
         allow_silent_video=allow_silent_video,
         audio_language=audio_language,
+        post_dir=post_dir,
     )
 
 

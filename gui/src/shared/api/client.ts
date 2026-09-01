@@ -9,6 +9,10 @@
  */
 
 import type {
+  BriefPackage,
+  BriefRequest,
+  BriefSaveRequest,
+  BriefSaved,
   DoctorReport,
   AddResponse,
   BulkActionResult,
@@ -40,6 +44,9 @@ import type {
   CorrectionWritten,
   GlossaryReport,
   FillerReport,
+  RefineOffer,
+  RefineStage,
+  RefineWritten,
   TidyOffer,
   TidyWritten,
 } from "./types";
@@ -235,6 +242,34 @@ export const api = {
   stackImageUrl: (id: string, kind: "result" | "preview" = "result") =>
     `/v1/stack/${encodeURIComponent(id)}/image?kind=${kind}`,
 
+  /* --- 延伸工具：貼文解說 ------------------------------------------------ */
+
+  /** Fetch a post's pictures and say where an explanation would go.
+   *
+   *  Costs platform budget unless the post is already on disk, in which case
+   *  `reused` is true and it cost nothing -- so calling it again is safe.
+   *
+   *  This does NOT explain anything. `mfp` runs no model (D-88); the reader
+   *  of the returned images is an agent somewhere else, and the desktop's job
+   *  is to hand over the pictures and the destination. */
+  brief: (payload: BriefRequest) =>
+    request<BriefPackage>("/brief", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  /** Append an explanation to a post's analysis file.
+   *
+   *  Appending, never rewriting (INV-B4): the file is a substrate for later
+   *  work, and something already summarised cannot be re-summarised in a new
+   *  direction. `post` must be the `post.postDir` value `brief` reported --
+   *  the server refuses anything outside an analysis store. */
+  saveBrief: (payload: BriefSaveRequest) =>
+    request<BriefSaved>("/brief:save", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
   /* --- 延伸工具：逐字稿 ------------------------------------------------- */
 
   /** Read a video's captions as lines -- or, when there are none and the
@@ -328,6 +363,44 @@ export const api = {
     request<TidyWritten>("/tidy:apply", {
       method: "POST",
       body: JSON.stringify({ source, ...(accepted ? { accepted } : {}) }),
+    }),
+
+  /** What the ticked stages WOULD do, in one call. Writes nothing.
+   *
+   *  One endpoint for one stage or both, so 「只做校正」 is a plan of length
+   *  one rather than a different feature with its own code path. The order
+   *  in `stages` is discarded: the server runs `refine.ORDER`, which is what
+   *  makes the output of 校正＋整理 one artifact with one name instead of
+   *  two spellings of the same content. */
+  proposeRefine: (source: string, stages: RefineStage[], exactOnly = false) =>
+    request<RefineOffer>("/refine:propose", {
+      method: "POST",
+      body: JSON.stringify({ source, stages, exactOnly }),
+    }),
+
+  /** Write the one set the ticked stages produce. The original is not among
+   *  the files.
+   *
+   *  Both accepted lists are INDICES into the offer and can only NARROW it.
+   *  The server recomputes the whole plan, so a renderer can neither ask for
+   *  a substitution the glossary does not hold nor a deletion the filler
+   *  list does not cover. */
+  applyRefine: (
+    source: string,
+    stages: RefineStage[],
+    acceptedCorrections?: number[],
+    acceptedRemovals?: number[],
+    exactOnly = false,
+  ) =>
+    request<RefineWritten>("/refine:apply", {
+      method: "POST",
+      body: JSON.stringify({
+        source,
+        stages,
+        exactOnly,
+        ...(acceptedCorrections ? { acceptedCorrections } : {}),
+        ...(acceptedRemovals ? { acceptedRemovals } : {}),
+      }),
     }),
 
   /** The filler whitelist. Empty is the normal state on a new machine, and

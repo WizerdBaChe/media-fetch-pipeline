@@ -72,7 +72,13 @@ from mfp.models import (
     MediaItem,
     Variant,
 )
-from mfp.naming import info_filename, manifest_filename, media_filename, resolve_output_path
+from mfp.naming import (
+    info_filename,
+    manifest_filename,
+    media_filename,
+    resolve_in_post_dir,
+    resolve_output_path,
+)
 from mfp.policy import resolution_class
 
 #: 256 KiB. Large enough that per-chunk overhead is noise on a 50 MB Reel,
@@ -175,6 +181,13 @@ class TransferPlan:
     author: str | None
     date: str
     post_id: str
+    #: Land everything in THIS folder instead of building the
+    #: `<platform>/<author>/<date>_<postId>` ladder under `output_root`.
+    #: Set by `brief`, whose post is analysis output and belongs in an
+    #: analysis run (D-143) -- one folder a person can read, not a ladder
+    #: nested inside one. `None` keeps the download-tree layout, which is
+    #: still the only correct answer for a manual download.
+    post_dir: Path | None = None
     ffmpeg: str | None = None
     #: The caller's answer to "there is no sound anywhere for this item".
     #: False -- the default -- keeps `_download_muxed`'s refusal to write a
@@ -828,6 +841,8 @@ def _destination_for(item: MediaItem, variant: Variant, plan: TransferPlan) -> P
         variant.ext,
         rung=resolution_class(variant) if item.kind == "video" else None,
     )
+    if plan.post_dir is not None:
+        return resolve_in_post_dir(plan.post_dir, filename)
     return resolve_output_path(
         plan.output_root,
         platform=plan.platform,
@@ -1146,6 +1161,7 @@ def download_manifest(
     *,
     output_root: str | Path,
     budget: FetchResultBudget,
+    post_dir: Path | None = None,
     ffmpeg: str | None = None,
     allow_silent_video: bool = False,
     client: httpx.Client | None = None,
@@ -1170,6 +1186,7 @@ def download_manifest(
         author=manifest.source.author,
         date=_date_from_manifest(manifest, now=moment),
         post_id=manifest.source.id,
+        post_dir=post_dir,
         ffmpeg=ffmpeg,
         allow_silent_video=allow_silent_video,
     )

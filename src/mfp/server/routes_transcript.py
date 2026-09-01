@@ -278,6 +278,62 @@ class TidyApplyResponse(CamelModel):
     removed: int
 
 
+class RefineRequest(CamelModel):
+    """One pass over a transcript, with the stages the reader ticked.
+
+    `stages` is a SET, not a sequence: the order they arrive in is discarded
+    and `refine.ORDER` decides. That is what makes 「校正＋整理」 one artifact
+    with one name instead of two spellings of the same content -- the
+    measurement that forced it is in `mfp.refine`'s docstring.
+    """
+
+    source: str
+    stages: list[str] = ["correct", "tidy"]
+    exact_only: bool = False
+
+
+class RefineProposeResponse(CamelModel):
+    source: str
+    #: In the order they will run, which is not necessarily the order asked.
+    stages: list[str]
+    #: The transcript as it stands, so the caller can render the before side.
+    cues: list[dict]
+    #: The cues after the correction stage -- what the removals below were
+    #: computed against, and what the reader is actually deciding about.
+    #: Identical to `cues` when the correction stage was not asked for.
+    corrected: list[dict]
+    proposals: list[ProposalOut] = []
+    diff: str = ""
+    removals: list[RemovalOut] = []
+    #: `tidy.summary` over `corrected`. Empty when the tidy stage is off.
+    summary: dict = {}
+    phonetic_keys: bool = False
+    glossary_entries: int = 0
+    filler_terms: int = 0
+
+
+class RefineApplyRequest(CamelModel):
+    source: str
+    stages: list[str] = ["correct", "tidy"]
+    exact_only: bool = False
+    #: Indices into each offered list, as returned. Omitted means all of them.
+    #: They may only NARROW what the rules already offered -- see the note on
+    #: `refine_apply`.
+    accepted_corrections: list[int] | None = None
+    accepted_removals: list[int] | None = None
+
+
+class RefineApplyResponse(CamelModel):
+    #: The file that was NOT written to, named for the reason its two
+    #: single-stage predecessors name it: 「your original is intact」 is what
+    #: this whole flow rests on.
+    original: str
+    stages: list[str]
+    written: dict[str, str]
+    corrected: int = 0
+    removed: int = 0
+
+
 class FillerResponse(CamelModel):
     path: str
     terms: list[str]
@@ -500,8 +556,7 @@ def build_transcript_router() -> APIRouter:
         outcome = td.translate_document(
             source,
             out_dir=runs.open_run(
-                config.output_root, source, stem=source.stem, kind="document"
-            ).root,
+                config.output_root, source, stem=source.stem, kind="document", verb='translate-doc').root,
             python_exe=runtime,
             model_dir=model.path,
             target=body.target,
@@ -652,6 +707,105 @@ def build_transcript_router() -> APIRouter:
             original=str(source),
             written={key: str(path) for key, path in written.items()},
             removed=len(removals) if accepted is None else len(accepted),
+        )
+
+    def _refine_load(config, body):
+        """The plan, computed server-side from the stores on this machine.
+
+        Never from the request. Both whitelists -- the glossary and the filler
+        list -- are the only source of what may be written, and an endpoint
+        that accepted proposals from a client would not be a whitelist
+        whatever it was called. The client narrows; it never adds.
+        """
+        from mfp import refine
+        from mfp import correct as corrector, tidy as tidier
+        from mfp.translate import read_cues
+
+        try:
+            stages = refine.order(body.stages)
+        except ValueError as exc:
+            raise UsageError(str(exc)) from exc
+        if not stages:
+            raise UsageError("要至少選一項：校正或整理")
+
+        source = Path(body.source).expanduser()
+        cues = read_cues(source)
+        glossary = corrector.Glossary.load(
+            corrector.glossary_path(config.output_root))
+        fillers = tidier.FillerList.load(
+            tidier.fillers_path(config.output_root))
+        plan = refine.plan(cues, stages=stages, glossary=glossary,
+                           fillers=fillers, exact_only=body.exact_only)
+        return source, plan, glossary, fillers
+
+    @router.post("/refine:propose", response_model=RefineProposeResponse)
+    def refine_propose(request: Request, body: RefineRequest):
+        """What the ticked stages WOULD do. Nothing is written.
+
+        One endpoint for one stage or both, so the client has one code path
+        and「只做校正」is a plan of length one rather than a different feature.
+        """
+        from mfp import refine
+        from mfp import correct as corrector, tidy as tidier
+
+        config = request.app.state.config
+        source, plan, glossary, fillers = _refine_load(config, body)
+        return RefineProposeResponse(
+            source=str(source),
+            stages=list(plan.stages),
+            cues=plan.cues,
+            corrected=plan.corrected,
+            proposals=[ProposalOut(**p.as_dict()) for p in plan.corrections],
+            diff=(corrector.diff(plan.cues, plan.corrections)
+                  if refine.STAGE_CORRECT in plan.stages else ""),
+            removals=[RemovalOut(**r.as_dict()) for r in plan.removals],
+            summary=(tidier.summary(plan.corrected, plan.removals)
+                     if refine.STAGE_TIDY in plan.stages else {}),
+            phonetic_keys=corrector.pinyin_available(),
+            glossary_entries=len(glossary.entries),
+            filler_terms=len(fillers),
+        )
+
+    @router.post("/refine:apply", response_model=RefineApplyResponse)
+    def refine_apply(request: Request, body: RefineApplyRequest):
+        """Write the one set the ticked stages produce. The original is not
+        among the files.
+
+        The plan is recomputed rather than carried in the request, for the
+        reason both single-stage routes recompute theirs: a client that posted
+        back an edited list could ask for a substitution the glossary does not
+        contain or a deletion the filler list does not cover. `accepted*` may
+        only narrow.
+        """
+        from mfp import refine, runs
+
+        config = request.app.state.config
+        source, plan, glossary, fillers = _refine_load(config, body)
+
+        def narrow(indices, offered):
+            if indices is None:
+                return None
+            return [i for i in indices if 0 <= i < len(offered)]
+
+        accept_corrections = narrow(body.accepted_corrections, plan.corrections)
+        accept_removals = narrow(body.accepted_removals, plan.removals)
+        written = refine.write(
+            source, plan, glossary=glossary, fillers=fillers,
+            accept_corrections=accept_corrections,
+            accept_removals=accept_removals,
+            # A `.srt` the user pointed at from their own folder gets a run
+            # folder of its own rather than derived copies dropped beside a
+            # file that is not ours.
+            out_dir=runs.workspace_for(config.output_root, source).root,
+        )
+        return RefineApplyResponse(
+            original=str(source),
+            stages=list(plan.stages),
+            written={key: str(path) for key, path in written.items()},
+            corrected=(len(plan.corrections) if accept_corrections is None
+                       else len(accept_corrections)),
+            removed=(len(plan.removals) if accept_removals is None
+                     else len(accept_removals)),
         )
 
     @router.get("/fillers", response_model=FillerResponse)

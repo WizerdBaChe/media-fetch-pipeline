@@ -47,6 +47,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from mfp import runs
 from mfp.errors import MfpError
 
 __all__ = [
@@ -182,7 +183,14 @@ class FillerList:
 
 
 def fillers_path(output_root: str | Path) -> Path:
-    return Path(output_root).expanduser() / FILLERS_FILE
+    """`<outputRoot>/_reference/_fillers.json`.
+
+    Class D (D-142), for the same reason as the glossary: the list is the
+    user's, it governs what may be deleted from a reading copy, and it does
+    not belong among rough output. Adoption from the old flat location
+    copies once and deletes nothing (`runs.adopt_reference`).
+    """
+    return runs.adopt_reference(output_root, FILLERS_FILE)
 
 
 @dataclass(frozen=True)
@@ -412,8 +420,11 @@ _SUFFIX = re.compile(r"\.[A-Za-z0-9]+$")
 def _stem(source: Path) -> str:
     """`talk.zh.srt` -> `talk.zh`. One suffix, exactly as `correct._stem`
     does it and for the same reason: the language tag is part of the
-    identity."""
-    return source.name[: -len(source.suffix)] if source.suffix else source.name
+    identity. Both now call the one in `refine`, so a stage cannot disagree
+    with another stage about what a transcript is called."""
+    from mfp.refine import stem_of
+
+    return stem_of(source)
 
 
 def write_pair(
@@ -437,48 +448,20 @@ def write_pair(
     still lists what was OFFERED, so a run where the user kept three cues
     says so -- `summary` counts what actually went, and the two numbers
     disagreeing is the point rather than a bug.
+
+    One stage of `refine`'s pipeline, and nothing more. This module decides
+    WHAT may be deleted; where the result lands, what it is called and what
+    record goes with it are the same questions for every stage, so they are
+    answered in one place -- which is what lets a reading copy be corrected
+    AND tidied instead of one or the other.
     """
-    from mfp import runs
-    from mfp.asr import to_srt, to_text
+    from mfp import refine
 
-    source = Path(source)
-    if out_dir:
-        out_dir = Path(out_dir)
-    else:
-        found = runs.run_of(source)
-        out_dir = found.root if found else source.parent
-    out_dir.mkdir(parents=True, exist_ok=True)
-    stem = _stem(source)
-
-    taken = (
-        removals if accepted is None
-        else [removals[i] for i in accepted if 0 <= i < len(removals)]
+    return refine.write(
+        Path(source),
+        refine.Plan(stages=(refine.STAGE_TIDY,), cues=list(cues),
+                    removals=list(removals)),
+        fillers=fillers,
+        accept_removals=accepted,
+        out_dir=out_dir,
     )
-    kept = apply(cues, taken, fillers=fillers)
-    if not kept:
-        raise TidyRefused(
-            "every cue in this transcript is on the filler list, so the "
-            "tidied copy would be empty. Nothing was written"
-        )
-
-    # One serial across all three, so the record always describes the copy
-    # sitting beside it (`runs.place_set`).
-    written = runs.place_set(out_dir, {
-        "tidy": f"{stem}.tidy.srt",
-        "reading": f"{stem}.tidy.txt",
-        "record": f"{stem}.tidy.json",
-    })
-    written["tidy"].write_text(to_srt(kept), encoding="utf-8")
-    written["reading"].write_text(
-        to_text(str(c.get("text", "")) for c in kept), encoding="utf-8"
-    )
-    written["record"].write_text(
-        json.dumps(
-            record(cues, taken, source=source.name, fillers=fillers,
-                   offered=len(removals)),
-            ensure_ascii=False,
-            indent=1,
-        ),
-        encoding="utf-8",
-    )
-    return written

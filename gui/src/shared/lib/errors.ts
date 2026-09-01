@@ -58,6 +58,17 @@ export const ERROR_PRESENTATION: Record<string, ErrorPresentation> = {
     recovery: "settings",
     hint: "請改用較短的輸出資料夾",
   },
+  outside_store: {
+    label: "這個資料夾是放下載檔案的",
+    recovery: "settings",
+    hint: "分析結果請放到別的資料夾，不要跟你自己下載的東西混在一起",
+  },
+  analysis_write_failed: {
+    // 圖片是好的，寫不進去的是解說。這句要說清楚，不然使用者會去重抓已經有的檔案。
+    label: "圖片都在，但解說存不進去",
+    recovery: "settings",
+    hint: "可能是資料夾沒有寫入權限或磁碟滿了；圖片不用重抓",
+  },
   nothing_to_stack: {
     label: "這段影片裡沒有可以疊的字幕",
     recovery: "none",
@@ -69,6 +80,14 @@ export const ERROR_PRESENTATION: Record<string, ErrorPresentation> = {
     label: "整理版沒有寫出來，原稿沒有動到",
     recovery: "none",
     hint: "逐字稿在中途被改過的話會這樣。重新讀一次再整理",
+  },
+  refine_refused: {
+    // 同一條規則，但這次是「兩段合起來」沒過：每一段各自都自證成功，
+    // 反過來還原卻回不到原稿。跟 tidy_refused 分開是因為原因不同——
+    // 那個是某一段自己對不起來，這個是組合對不起來。
+    label: "校正＋整理沒有寫出來，原稿沒有動到",
+    recovery: "none",
+    hint: "逐字稿在中途被改過的話會這樣。重新讀一次再做一遍",
   },
   no_subtitle_pixels_in_band: {
     // The M2 acceptance failure, made presentable: the band was aimed at a

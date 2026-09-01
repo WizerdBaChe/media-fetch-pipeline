@@ -321,9 +321,39 @@ class BriefSkipped(CamelModel):
 
     index: int
     kind: Literal["video", "other"]
-    #: Wire code: `video_not_supported_yet` | `unsupported_item_kind` |
+    #: Wire code: `video_not_fetched` | `unsupported_item_kind` |
     #: `transfer_failed`.
+    #:
+    #: `video_not_fetched` replaced `video_not_supported_yet` on 2026-09-02,
+    #: when `--with-video` made the old code false: the video is supported,
+    #: it was not asked for. A code that states a capability the build has
+    #: teaches every reader the wrong thing about what to try next.
     reason: str
+
+
+class BriefVideo(CamelModel):
+    """One video item that WAS transferred, because the caller asked for it.
+
+    Its own list rather than a row in `images`: an agent iterating `images`
+    reads them, and a video is not something that can be read. It is
+    something to run `mfp transcript` over -- which is the whole reason this
+    list exists, since the caller has no vision path to a video and never
+    will (D-88 puts the looking outside, and nothing outside gets 30 minutes
+    of frames either).
+
+    Absent unless `--with-video` was passed. Without it a video item stays in
+    `skipped[]` exactly as before, and the bandwidth is never spent.
+    """
+
+    index: int
+    #: Absolute, for the same reason `BriefImage.path` is.
+    path: str
+    bytes: int
+    #: From the variant the policy chose, `None` when it did not say. No
+    #: duration field: nothing in a manifest carries one, and probing the
+    #: file to invent one would make every brief pay for ffprobe.
+    width: int | None = None
+    height: int | None = None
 
 
 class BriefPost(CamelModel):
@@ -351,6 +381,15 @@ class BriefUntrusted(CamelModel):
     #: `str(index)` -> that item's alt text. Keyed by string because this is
     #: a JSON object on the wire.
     alt_text: dict[str, str | None] = Field(default_factory=dict)
+    #: The file holding everything above, beside the images. `None` when the
+    #: post carried no text at all.
+    #:
+    #: Inside `untrusted` rather than beside `analysisPath`, and that is the
+    #: invariant rather than tidiness: INV-B6 says a reader cannot reach the
+    #: author's words without passing through this word, and a path is a way
+    #: of reaching them. A `textPath` on `BriefPackage` would be a second door
+    #: into the same room with no sign on it.
+    text_path: str | None = None
 
 
 class BriefExisting(CamelModel):
@@ -376,6 +415,9 @@ class BriefPackage(CamelModel):
     post: BriefPost
     untrusted: BriefUntrusted
     images: list[BriefImage] = Field(default_factory=list)
+    #: Videos that were transferred because `--with-video` asked for them.
+    #: Empty by default, and then every video is in `skipped` instead.
+    videos: list[BriefVideo] = Field(default_factory=list)
     skipped: list[BriefSkipped] = Field(default_factory=list)
     analysis_path: str
     existing: BriefExisting | None = None

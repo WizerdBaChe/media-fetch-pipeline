@@ -4,8 +4,15 @@
  * The name is a decision, not a default. 「擴充功能」 reads as something
  * installed from outside and collides with 「擴充設定」 -- settings FOR
  * extensions -- which is a different idea again. 「工具」 says these are
- * things that DO something to a video, which separates them from 設定
- * without further explanation.
+ * things that DO something to a source the user names, which separates them
+ * from 設定 without further explanation.
+ *
+ * That sentence said 「to a video」 until 2026-09-01 and was already false
+ * twice over: 逐字稿 takes a local audio file, and 貼文解說 takes a link to
+ * a page of photographs. Corrected in the same commit that registered the
+ * fourth tool, because a classification whose stated reason contradicts its
+ * own registry teaches the next reader the wrong tier -- which is how a verb
+ * ends up in the wrong menu and then in the wrong module.
  *
  * Two doors, one menu. From the header it asks for a source; from a queue
  * row it already has one. Everything below the menu is the tool's own.
@@ -41,6 +48,11 @@ export const EXTENSIONS: readonly ExtensionDef[] = [
     id: "translatedoc",
     label: "文件翻譯",
     hint: "把 .txt／.md 文件翻成另一種語言，程式碼、表格和連結原樣保留",
+  },
+  {
+    id: "brief",
+    label: "貼文解說",
+    hint: "把貼文的圖片抓下來，交給你的 AI 看，再把解說存回同一個資料夾",
   },
 ];
 

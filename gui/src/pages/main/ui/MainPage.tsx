@@ -9,6 +9,7 @@ import { AddUrlsForm } from "@/features/add-urls/ui/AddUrlsForm";
 import { ExtensionMenu } from "@/features/pick-extension/ui/ExtensionMenu";
 import { CapabilityNotice } from "@/widgets/capability-notice/ui/CapabilityNotice";
 import { DocumentWorkspace } from "@/widgets/document-workspace/ui/DocumentWorkspace";
+import { PostWorkspace } from "@/widgets/post-workspace/ui/PostWorkspace";
 import { QueueTable } from "@/widgets/queue-table/ui/QueueTable";
 import {
   StackWorkspace,
@@ -50,12 +51,18 @@ type View =
   // languages, the result -- lives in its own store and is still there when
   // the view comes back. The other two carry a transcript or a frame that
   // cost minutes to produce, which is what a snapshot is for.
-  | { kind: "translatedoc" };
+  | { kind: "translatedoc" }
+  // Same reasoning: the link, the package and the draft all live in
+  // `explain-post`'s own store, so coming back finds them there. The
+  // draft especially -- it is text a person pasted, and losing it to a
+  // navigation would be the one unrecoverable thing this panel holds.
+  | { kind: "brief" };
 
 /** What 上一步 calls the screen it would take you back to. */
 function labelOf(view: View): string {
   if (view.kind === "transcript") return "逐字稿";
   if (view.kind === "translatedoc") return "文件翻譯";
+  if (view.kind === "brief") return "貼文解說";
   return view.kind === "quotestack" ? "引用長圖" : "佇列";
 }
 
@@ -141,6 +148,10 @@ export function MainPage() {
     // one thing this tool cannot take. The row's menu says so and offers it
     // disabled; from the header there is nothing to hand over yet.
     if (id === "translatedoc") go({ kind: "translatedoc" });
+    // No `path`, for the same reason: a queue row hands over the folder
+    // it downloaded into, and this verb takes a post URL. The row offers
+    // it disabled with the reason (D-137's rule).
+    if (id === "brief") go({ kind: "brief" });
   };
 
   return (
@@ -234,6 +245,10 @@ export function MainPage() {
             // than reached for: which panels exist is this page's business.
             onOpenSettings={() => setSettingsAt("asr")}
           />
+        )}
+
+        {view.kind === "brief" && (
+          <PostWorkspace onClose={() => go({ kind: "queue" })} />
         )}
 
         {view.kind === "translatedoc" && (

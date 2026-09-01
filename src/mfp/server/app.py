@@ -23,6 +23,7 @@ from mfp.errors import MfpError
 from mfp.queue import IllegalTransition, TaskNotFound, TaskQueue
 from mfp.server.events import EventBroadcaster
 from mfp.server.routes_asr import build_asr_router
+from mfp.server.routes_brief import build_brief_router
 from mfp.server.routes_config import build_config_router
 from mfp.server.routes_queue import build_queue_router
 from mfp.server.routes_stack import build_stack_router
@@ -87,6 +88,10 @@ ERROR_STATUS: dict[str, int] = {
     "usage_error": 400,
     "unsupported_url": 400,
     "path_too_long": 400,
+    # 400 with the other "your argument cannot be used" failures: `--out`
+    # pointed an analysis artifact outside every store (`INV-P3`). Nothing is
+    # broken and retrying unchanged will fail identically.
+    "outside_store": 400,
     "task_not_found": 404,
     "stack_job_not_found": 404,
     "illegal_transition": 409,
@@ -114,6 +119,10 @@ ERROR_STATUS: dict[str, int] = {
     # a fault upstream or here -- and never a retry, since the same input
     # produces the same refusal.
     "tidy_refused": 422,
+    # Same family, one layer up: each stage checked itself and undoing them
+    # in reverse did not give the original transcript back. Nothing was
+    # written, the same input refuses the same way, so it is never a retry.
+    "refine_refused": 422,
     # Same family: the video was read fine and simply has no caption track.
     "no_captions_available": 422,
     # 503, joining `dependency_missing`: the speech-recognition engine is a
@@ -124,6 +133,11 @@ ERROR_STATUS: dict[str, int] = {
     # 500: ffmpeg is installed and ran -- this machine failed at the work.
     # Not 503, which is reserved for a dependency that is not there at all.
     "media_tool_failed": 500,
+    # 500: the pictures fetched fine and THIS machine failed to write the
+    # explanation beside them -- a directory, a permission or a full disk.
+    # Not 4xx: the request was valid and re-sending it unchanged may well
+    # succeed once the disk does.
+    "analysis_write_failed": 500,
     "media_transfer_failed": 502,
     # A strategy-level signal that normally makes the adapter fall through to
     # the next strategy (PSM §5.1). If one ever escapes to a client it is an
@@ -245,6 +259,7 @@ def create_app(
     app.include_router(build_transcript_router(), prefix=API_PREFIX)
     app.include_router(build_config_router(), prefix=API_PREFIX)
     app.include_router(build_asr_router(), prefix=API_PREFIX)
+    app.include_router(build_brief_router(), prefix=API_PREFIX)
 
     @app.get("/v1/health")
     async def health(request: Request) -> dict[str, object]:

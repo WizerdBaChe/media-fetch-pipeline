@@ -43,6 +43,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from mfp import runs
 from mfp.errors import MfpError
 
 #: Where a proposal is allowed to come from.
@@ -364,7 +365,15 @@ class Glossary:
 
 
 def glossary_path(output_root: str | Path) -> Path:
-    return Path(output_root).expanduser() / GLOSSARY_FILE
+    """`<outputRoot>/_reference/_glossary.json`.
+
+    Class D (D-142): this list is what a user has refined by hand, and it
+    decides what the corrector is ALLOWED to write. It moved out of the flat
+    output root, where it sat among rough analysis output. A copy left at the
+    old location is adopted once and never deleted -- see
+    `runs.adopt_reference`.
+    """
+    return runs.adopt_reference(output_root, GLOSSARY_FILE)
 
 
 # --------------------------------------------------------------------------
@@ -657,8 +666,14 @@ def patch(
 def _stem(source: Path) -> str:
     """`talk.zh.srt` -> `talk.zh`. One suffix, not all of them: the language
     tag is part of the identity, and `talk.corrected.srt` sitting next to
-    `talk.en.srt` and `talk.zh.srt` would belong to neither."""
-    return source.name[: -len(source.suffix)] if source.suffix else source.name
+    `talk.en.srt` and `talk.zh.srt` would belong to neither.
+
+    Lives in `refine` now, because the naming rule has to be the same one for
+    every stage and every combination of them. Kept here as a name because it
+    is the name this module's own tests ask about."""
+    from mfp.refine import stem_of
+
+    return stem_of(source)
 
 
 def write_pair(
@@ -676,48 +691,23 @@ def write_pair(
     under, and it is also the only reason the patch is safe to be wrong about:
     a correction the user dislikes costs them a file they can delete, not the
     transcript they already had.
+
+    One stage of `refine`'s pipeline, and nothing more. This module decides
+    WHAT to substitute; where the result lands, what it is called and what
+    record goes with it are the same questions for every stage, so they are
+    answered in one place -- which is what makes correcting and tidying
+    composable instead of two terminal verbs with two file layouts.
     """
-    from mfp import runs
-    from mfp.asr import to_srt, to_text
+    from mfp import refine
 
-    source = Path(source)
-    if out_dir:
-        out_dir = Path(out_dir)
-    else:
-        # The analysis this transcript belongs to, not the folder the file
-        # happens to sit in: the source is normally inside `字幕檔/`, and
-        # writing the corrected copy there would bury it one level below the
-        # run it belongs to -- and put the `.txt` in the subtitles folder.
-        found = runs.run_of(source)
-        out_dir = found.root if found else source.parent
-    out_dir.mkdir(parents=True, exist_ok=True)
-    stem = _stem(source)
-
-    keep = proposals if accepted is None else [proposals[i] for i in accepted]
-    corrected = apply(cues, keep)
-
-    # One serial across all four (`runs.place_set`): a corrections record
-    # filed under a different serial than the transcript it describes would
-    # be a record of nothing.
-    written = runs.place_set(out_dir, {
-        "corrected": f"{stem}.corrected.srt",
-        "reading": f"{stem}.corrected.txt",
-        "record": f"{stem}.corrections.json",
-        "diff": f"{stem}.corrections.diff.txt",
-    })
-    written["corrected"].write_text(to_srt(corrected), encoding="utf-8")
-
-    written["reading"].write_text(
-        to_text(str(c.get("text", "")) for c in corrected), encoding="utf-8")
-
-    written["record"].write_text(
-        json.dumps(patch(cues, proposals, source=source.name, glossary=glossary,
-                         accepted=accepted),
-                   ensure_ascii=False, indent=1),
-        encoding="utf-8")
-
-    written["diff"].write_text(diff(cues, keep) + "\n", encoding="utf-8")
-    return written
+    return refine.write(
+        Path(source),
+        refine.Plan(stages=(refine.STAGE_CORRECT,), cues=list(cues),
+                    corrections=list(proposals)),
+        glossary=glossary,
+        accept_corrections=accepted,
+        out_dir=out_dir,
+    )
 
 
 def from_patch(payload: dict) -> list[Proposal]:

@@ -151,6 +151,28 @@ if ($SkipSidecar) {
     if (-not (Test-Path -LiteralPath $skillPayload)) {
         throw 'the bundle carries no _internal\agent\SKILL.md -- mfp agent-guide would print nothing'
     }
+    # ...and one file per 延伸工具, since M5 split them out of SKILL.md. The
+    # failure guarded against -- `agent-guide --extension` reporting "the
+    # packaged guide is missing" -- happens on a user's machine and nowhere
+    # else, so a count check would be worthless: it would pass a bundle
+    # carrying four wrong files.
+    #
+    # The set is READ from the source directory rather than listed here. A
+    # list in this script would be a third copy of it (beside
+    # `agent.EXTENSIONS` and the directory itself) and the one nobody updates.
+    # `test_every_extension_is_named_in_the_core_contract` is what keeps the
+    # directory and `agent.EXTENSIONS` in agreement.
+    $extensionNames = Get-ChildItem -LiteralPath (Join-Path $root 'skill\extensions') -Filter '*.md' |
+        ForEach-Object { $_.BaseName }
+    if (-not $extensionNames) {
+        throw 'skill\extensions is empty -- the 延伸工具 contracts would not ship'
+    }
+    foreach ($name in $extensionNames) {
+        $guide = Join-Path $sidecarDist "_internal\agent\extensions\$name.md"
+        if (-not (Test-Path -LiteralPath $guide)) {
+            throw "the bundle carries no _internal\agent\extensions\$name.md -- mfp agent-guide --extension $name would fail"
+        }
+    }
     # ...and the speech-recognition runner. Same failure shape as the Skill:
     # `mfp.asr.runner_path()` reads this exact path, and without it every
     # transcription of a local audio file fails at the last moment, after
