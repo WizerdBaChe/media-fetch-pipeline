@@ -18,9 +18,23 @@ export interface ErrorPresentation {
 export const ERROR_PRESENTATION: Record<string, ErrorPresentation> = {
   unsupported_url: { label: "不支援的網址", recovery: "remove" },
   upstream_structure_change: {
-    label: "頁面結構改變，無法解析",
+    // 這一格現在是「分不出來」，不是「平台改版了」。
+    //
+    // 舊的 hint 直接斷定改版，而這個代碼在 2026-09-03 之前是 yt-dlp 每一種
+    // 失敗的收容所——限流、DNS 失敗、平台當機全都掛在這句話下面。使用者讀到
+    // 的是「程式壞了要修」，真相卻常常是「等一下再試」，於是有人改用另一種
+    // 複製網址的方式來閃避一個跟網址無關的問題。限流和連不上已經各自有代碼
+    // 了，剩在這裡的是真的沒認出來的那些，所以這句話只講它知道的事。
+    label: "無法解析這個頁面",
     recovery: "retry",
-    hint: "平台可能改版了，重試若仍失敗請回報",
+    hint: "認不出這個平台回來的內容。可能是平台改版，也可能是這次回應不完整；重試若仍失敗請連同錯誤訊息回報",
+  },
+  upstream_unreachable: {
+    // 從 upstream_structure_change 拆出來（D-155），理由跟 no_media_in_post
+    // 當初拆出來一樣：那個代碼的意思是「程式要修」，而網路斷線不是。
+    label: "連不上平台",
+    recovery: "retry",
+    hint: "平台沒有回應，或它自己回報了錯誤。這不是程式的問題，檢查網路後稍後重試即可",
   },
   no_media_in_post: {
     // Split from upstream_structure_change (O-10). Recovery is "remove",
@@ -37,7 +51,15 @@ export const ERROR_PRESENTATION: Record<string, ErrorPresentation> = {
     hint: "重新分析會消耗 1 個配額單位",
   },
   budget_exhausted: { label: "等待配額", recovery: "wait" },
-  rate_limited: { label: "被限流，等待中", recovery: "wait" },
+  rate_limited: {
+    // 2026-09-03 起這個代碼多了一個來源：以前只有傳輸中 CDN 回 429 才會走到
+    // 這裡，現在解析階段被平台擋下（Bilibili 的 412）也是這一格。加 hint 是
+    // 因為使用者最需要知道的一件事在標籤裡放不下——被擋跟網址寫法無關，換一
+    // 種複製網址的方式不會有幫助，而換平台繼續抓才是真的會讓事情變糟。
+    label: "被限流，等待中",
+    recovery: "wait",
+    hint: "平台這次拒絕了我們，跟你貼的網址寫法無關。這個平台會先暫停一段時間再自動恢復，期間繼續重試只會拉長它",
+  },
   dependency_missing: { label: "缺少相依工具", recovery: "doctor" },
   // Distinct from `dependency_missing` on purpose: that one means the tool
   // is not here, this one means fetching it did not work -- almost always

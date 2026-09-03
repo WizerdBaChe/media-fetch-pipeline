@@ -48,6 +48,22 @@ class BudgetConfig(CamelModel):
             cooldown_on_block_ms=1_800_000,
         )
     )
+    #: Bilibili's own bucket, added 2026-09-03 (D-155). PSM §4.6 named two
+    #: buckets, so Bilibili sat in `default` and was polled at 1s intervals
+    #: -- four times faster than Instagram -- against a risk-control system
+    #: that answers HTTP 412 on frequency. The pacing is what moved; the
+    #: cooldown is left at the default because nothing here has measured how
+    #: long Bilibili's window actually is, and inventing a number would be
+    #: the tuning this project keeps deciding not to do on one data point.
+    bilibili: BudgetPlatformConfig = Field(
+        default_factory=lambda: BudgetPlatformConfig(
+            max_requests_per_hour=120,
+            max_requests_per_run=40,
+            min_interval_ms=2500,
+            jitter_ms=1500,
+            cooldown_on_block_ms=300_000,
+        )
+    )
     default: BudgetPlatformConfig = Field(
         default_factory=lambda: BudgetPlatformConfig(
             max_requests_per_hour=300,
@@ -60,10 +76,26 @@ class BudgetConfig(CamelModel):
 
     def for_platform(self, platform: str) -> BudgetPlatformConfig:
         """Look up the budget config for `platform`, falling back to the
-        `default` bucket for any platform name other than `"instagram"`
-        (PSM §4.6 only names these two buckets)."""
-        if platform == "instagram":
-            return self.instagram
+        `default` bucket for any platform this class has no field for.
+
+        Reads the field by NAME rather than testing platforms one at a time:
+        the two-branch version was written when PSM §4.6 named exactly two
+        buckets, and adding a third meant remembering to extend a lookup in
+        a different file from the one the bucket is declared in. Declaring
+        the field is now the whole of adding a bucket.
+
+        The declared-fields check comes FIRST and is read off the class, not
+        the instance. A bare `getattr(self, platform)` would reach every
+        attribute this class has, including Pydantic's own -- and asking an
+        instance for `model_fields` emits a deprecation warning, so the
+        permissive version was one platform name away from printing a
+        warning in production for a lookup that was going to fall through to
+        `default` anyway.
+        """
+        if platform in type(self).model_fields:
+            bucket = getattr(self, platform)
+            if isinstance(bucket, BudgetPlatformConfig):
+                return bucket
         return self.default
 
 

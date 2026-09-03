@@ -15,13 +15,20 @@ Manifest is what makes that day observable rather than invisible.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import time
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from mfp import logs
 from mfp.adapters.base import FetchContext, PlatformAdapter, standard_fetch
-from mfp.errors import DependencyMissingError, NoMediaInPost, UpstreamStructureChange
+from mfp.errors import (
+    DependencyMissingError,
+    NoMediaInPost,
+    RateLimitedError,
+    UpstreamStructureChange,
+    UpstreamUnreachable,
+)
 from mfp.inputs import identify
 from mfp.models import (
     ExcludedFormats,
@@ -305,10 +312,75 @@ _NO_MEDIA_PHRASES: tuple[str, ...] = (
     "there's no video in this tweet",
 )
 
+#: The HTTP status yt-dlp forwarded, in either spelling it uses. One real
+#: line carries both: `HTTP Error 412: Precondition Failed (caused by
+#: <HTTPError 412: Precondition Failed>)`. `HTTP\s*Error` covers the spaced
+#: and unspaced form together.
+_HTTP_STATUS_RE = re.compile(r"HTTP\s*Error\s*:?\s*(\d{3})", re.I)
 
-def _says_the_post_has_no_media(message: str) -> bool:
-    lowered = message.lower()
-    return any(phrase in lowered for phrase in _NO_MEDIA_PHRASES)
+#: The platform said no on purpose. 412 is what Bilibili's risk control
+#: answers a request it does not like (measured 2026-09-03 on a real link,
+#: and the same URL succeeded four times an hour later -- so this is a
+#: statement about the moment, never about the URL). 429 is the standard
+#: spelling of the same thing.
+_BLOCK_STATUSES: frozenset[str] = frozenset({"412", "429"})
+
+#: The platform's own fault, forwarded. A 5xx is the server saying it is
+#: broken; nothing about our parser follows from it.
+_UPSTREAM_FAULT_STATUSES: frozenset[str] = frozenset({"500", "502", "503", "504"})
+
+#: yt-dlp's wrapper for every transport-layer failure -- DNS, refused
+#: connection, reset, TLS. Matched on the EXCEPTION NAME rather than on the
+#: message, because the message is the operating system's and the operating
+#: system translates it: this machine reports a refused connection as
+#: 「無法連線，因為目標電腦拒絕連線。」, so a table of English phrases
+#: ("connection refused") would classify nothing here (P-77).
+_TRANSPORT_MARKER = "transporterror"
+
+#: What a failed `yt-dlp --dump-json` was, as far as its own output can say.
+#: `unknown` is the honest residual and keeps its old destination
+#: (`upstream_structure_change`); every named value had to be shown a real
+#: captured stderr before it was added.
+YtDlpFailure = Literal["no_media", "rate_limited", "unreachable", "unknown"]
+
+
+def _error_lines(stderr: str) -> list[str]:
+    """The lines yt-dlp marked `ERROR:`, or all of them if it marked none.
+
+    Severity is a filter, not decoration. A *successful* Bilibili probe ends
+    with `WARNING: Subtitles are only available when logged in` -- so a
+    classifier reading whole-stderr would be one phrase table away from
+    calling every Bilibili failure a login wall, on the strength of a line
+    that was never about the failure. The fallback exists because a failure
+    with no marked line still has to be classified from something.
+    """
+    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
+    marked = [line for line in lines if line.upper().startswith("ERROR:")]
+    return marked or lines
+
+
+def classify_failure(stderr: str) -> YtDlpFailure:
+    """Name what went wrong, from yt-dlp's own error output.
+
+    This exists because the thing it replaced was a two-way switch -- "does
+    this say the post has no media, yes or no" -- whose `else` branch
+    reported `upstream_structure_change`, i.e. 「頁面結構改變」, for a rate
+    limit, a DNS failure, and a platform outage alike. A `default:` branch
+    answering a question it cannot answer is the same defect as P-74, and
+    the user-visible cost is the same: it told a reader that the program was
+    broken and needed fixing, when the truth was "wait and try again".
+    """
+    blob = "\n".join(_error_lines(stderr)).lower()
+    if any(phrase in blob for phrase in _NO_MEDIA_PHRASES):
+        return "no_media"
+    statuses = {match.group(1) for match in _HTTP_STATUS_RE.finditer(blob)}
+    if statuses & _BLOCK_STATUSES:
+        return "rate_limited"
+    if statuses & _UPSTREAM_FAULT_STATUSES:
+        return "unreachable"
+    if _TRANSPORT_MARKER in blob:
+        return "unreachable"
+    return "unknown"
 
 
 def _sidecars_from_dump(payload: dict) -> list[SidecarAsset]:
@@ -531,7 +603,18 @@ class YtDlpUnavailable(Exception):
     expected outcome that the caller records and moves past. Raising a
     taxonomy error would invite a caller to surface it to the user as though
     the whole probe had failed.
+
+    `stderr` is the WHOLE of what yt-dlp printed, and it is carried rather
+    than summarised because the summary is one line and classification needs
+    the rest: yt-dlp puts the cause in `(caused by ...)` on the same line
+    sometimes and on another line other times. Empty when the failure was
+    ours (unparseable stdout, no usable format) rather than yt-dlp's, which
+    is exactly the case that must stay `upstream_structure_change`.
     """
+
+    def __init__(self, message: str, *, stderr: str = "") -> None:
+        super().__init__(message)
+        self.stderr = stderr
 
 
 class YtDlpMissing(YtDlpUnavailable):
@@ -567,9 +650,14 @@ def probe(
         raise YtDlpMissing(f"could not run {argv[0]}: {exc}") from exc
 
     if completed.returncode != 0:
-        stderr = (completed.stderr or "").strip().splitlines()
+        stderr = completed.stderr or ""
+        # The last ERROR line, not the last line. yt-dlp is free to print a
+        # warning after the error that killed it, and quoting that warning
+        # as the reason is how a reader ends up debugging the wrong thing.
+        marked = _error_lines(stderr)
         raise YtDlpUnavailable(
-            f"yt-dlp exited {completed.returncode}: {stderr[-1] if stderr else 'no output'}"
+            f"yt-dlp exited {completed.returncode}: {marked[-1] if marked else 'no output'}",
+            stderr=stderr,
         )
 
     try:
@@ -654,10 +742,29 @@ class YtDlpAdapter(PlatformAdapter):
                 f"yt-dlp is required for {platform} URLs and could not be run: {exc}"
             ) from exc
         except YtDlpUnavailable as exc:
-            if _says_the_post_has_no_media(str(exc)):
+            # `str(exc)` is the fallback for the three raise sites that have
+            # no stderr to carry -- those are our own parse failures, and
+            # they classify as `unknown`, which is where they belong.
+            kind = classify_failure(exc.stderr or str(exc))
+            if kind == "no_media":
                 raise NoMediaInPost(
                     f"{url} was read successfully and contains nothing this tool can "
                     f"download: {exc}",
+                    url=url,
+                ) from exc
+            if kind == "rate_limited":
+                # The governor hears about this at the pipeline's one choke
+                # point, not here: every adapter's block signal has to enter
+                # the cooldown the same way, and only one of them used to.
+                raise RateLimitedError(
+                    f"{platform} refused this request rather than failing to answer "
+                    f"it -- the same URL usually works later: {exc}",
+                    url=url,
+                ) from exc
+            if kind == "unreachable":
+                raise UpstreamUnreachable(
+                    f"{platform} could not be reached or answered with its own error "
+                    f"for {url}: {exc}",
                     url=url,
                 ) from exc
             raise UpstreamStructureChange(
@@ -672,9 +779,11 @@ __all__ = [
     "DUMP_JSON_TIMEOUT_S",
     "PLATFORMS",
     "YtDlpAdapter",
+    "YtDlpFailure",
     "YtDlpMissing",
     "YtDlpUnavailable",
     "build_argv",
+    "classify_failure",
     "default_runner",
     "manifest_from_dump",
     "pick_audio_track",

@@ -74,6 +74,13 @@ export const QUEUE_COLUMNS: readonly QueueColumn[] = [
   // 「⚠ 頁面結構改變，無法解析」 measured 161px of content in a 96px cell and
   // was cut mid-word with no ellipsis, so a failed row could not be read at
   // all (measured 2026-08-23). The 32px comes out of 來源.
+  //
+  // That label is gone as of 2026-09-03 (D-155 renamed it 「無法解析這個頁面」
+  // and split 「連不上平台」 out of it), and both replacements are SHORTER, so
+  // the measurement above still bounds this cell from the wrong side of the
+  // number -- which is the safe side. The width is left where it is: it was
+  // set by a real clipping failure and `queue-geometry` is what rules on it,
+  // not this comment.
   { id: "state", label: "狀態", width: 128, align: "left" },
   // 120 narrow: 16 of padding, 38 for the percentage and 8 of gap leave the
   // bar 58px, which still reads as a bar. Below that it is a coloured dash.

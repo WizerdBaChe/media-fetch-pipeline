@@ -113,6 +113,12 @@ ERROR_STATUS: dict[str, int] = {
     "tool_install_failed": 502,
     "chrome_default_profile": 500,
     "upstream_structure_change": 502,
+    # 504, deliberately not 502: 502 is "the upstream answered and the answer
+    # was broken", which is what a structure change is. This one is "the
+    # upstream did not answer at all, or answered with its own 5xx" -- a
+    # timeout in the literal sense, and the one status that says retry later
+    # without also saying something here is wrong.
+    "upstream_unreachable": 504,
     # 422, deliberately not 502: the post was read successfully and simply
     # has nothing to download. Nothing upstream is broken, so it must not
     # share a status with the code that means our parser is now wrong.

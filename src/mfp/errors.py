@@ -119,6 +119,28 @@ class UpstreamStructureChange(MfpError):
     exit_code = 5
 
 
+class UpstreamUnreachable(MfpError):
+    """The platform never answered, or answered with its own fault.
+
+    Split out of `upstream_structure_change` on 2026-09-03 (D-155), for the
+    same reason `no_media_in_post` was split out of it in O-10: exit 5 tells
+    a reader "the site changed shape and this needs a code fix", and saying
+    that about a DNS failure sends them to debug a parser over a Wi-Fi blip.
+    Measured: yt-dlp reports a refused connection as
+    `TransportError(...)`, and a platform 5xx as `HTTP Error 503` -- neither
+    is a statement about our parser.
+
+    Exit 1, the residual "did not fully succeed" bucket, deliberately: this
+    is not a block (exit 4 tells an agent never to loop-retry, and retrying
+    later is exactly right here), not a budget stop (exit 7), and not a code
+    fix (exit 5). Nothing in the agent surface's exit table has to change,
+    because 1 already means "no specific named cause -- read errorCode".
+    """
+
+    error_code = "upstream_unreachable"
+    exit_code = 1
+
+
 class NoMediaInPost(MfpError):
     """The post was found and read, and it simply has nothing to download.
 
@@ -324,6 +346,7 @@ TAXONOMY: dict[str, type[MfpError]] = {
         RateLimitedError,
         BudgetExhausted,
         UpstreamStructureChange,
+        UpstreamUnreachable,
         NoMediaInPost,
         MediaTransferFailedError,
         PlatformTransferBlocked,

@@ -236,6 +236,28 @@ def _stopper_for(exc: MfpError) -> StopReason | None:
     return None
 
 
+def _stopper_reported(exc: MfpError, *, platform: str, ctx: FetchContext) -> StopReason | None:
+    """`_stopper_for`, plus the half of rule 1 that was never wired.
+
+    `FetchBudgetGovernor.report_block` was written for PSM §7, documented,
+    unit-tested -- and called by nothing in `src/` from the day it was
+    added until 2026-09-03, so `cooldownOnBlockMs` had never once elapsed in
+    the product. A platform that had just refused us went on being polled at
+    the ordinary pace, which is precisely what keeps a risk-control window
+    open (D-155).
+
+    It belongs here rather than in each adapter because a block is a block
+    whoever noticed it: the Instagram chain raises `LoginWallError` and
+    `RateLimitedError`, the yt-dlp adapter now raises `RateLimitedError`,
+    and `download.py` raises it for a CDN 429. One producer, not four, and
+    the choke point is the same place rule 1 already lives.
+    """
+    reason = _stopper_for(exc)
+    if reason == "blocked":
+        ctx.budget.report_block(platform)
+    return reason
+
+
 def probe_urls(
     urls: Sequence[str],
     *,
@@ -292,7 +314,7 @@ def probe_urls(
                     error_detail=str(exc)[:500],
                 )
             )
-            batch.stop_reason = _stopper_for(exc)
+            batch.stop_reason = _stopper_reported(exc, platform=platform, ctx=ctx)
             continue
 
         batch.outcomes.append(
@@ -485,7 +507,9 @@ def run_fetch(
                         error_detail=str(exc)[:500],
                     )
                 )
-                stop_reason = stop_reason or _stopper_for(exc)
+                stop_reason = stop_reason or _stopper_reported(
+                    exc, platform=platform, ctx=ctx
+                )
                 continue
             rows = [row.model_copy(update={"post_id": manifest.source.id}) for row in result.items]
             error_code = error_detail = None
