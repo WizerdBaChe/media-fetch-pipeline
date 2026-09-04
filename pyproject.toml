@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "media-fetch-pipeline"
-version = "0.1.0"
+version = "1.0.0"
 description = "Local media fetch pipeline: quality policy, fetch budget governor, naming/organizer, platform adapters."
 requires-python = ">=3.12"
 dependencies = [
