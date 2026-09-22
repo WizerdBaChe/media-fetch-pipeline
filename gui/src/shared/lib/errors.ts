@@ -64,6 +64,16 @@ export const ERROR_PRESENTATION: Record<string, ErrorPresentation> = {
     recovery: "remove",
     hint: "貼文本身沒問題，只是沒有圖片或影片可以下載；Threads、Instagram 的純文字貼文，以及 X 的純圖片或純文字貼文都會是這樣",
   },
+  post_unavailable: {
+    // Split from upstream_structure_change (P-94, 2026-09-23): Instagram
+    // answered with its own error page, 「Post無法顯示」. Recovery is
+    // "remove" for no_media_in_post's reason -- the same URL gets the same
+    // page. The hint lists causes as candidates on purpose: logged out, the
+    // program cannot tell removed from private, so it must not pick one.
+    label: "平台不顯示這則貼文",
+    recovery: "remove",
+    hint: "平台回的是它自己的「無法顯示」頁，不是程式壞了；貼文可能已刪除、帳號不公開或有地區限制，本工具不登入，分不出是哪一種",
+  },
   link_expired: {
     label: "連結過期",
     recovery: "reprobe",

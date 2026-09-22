@@ -189,6 +189,31 @@ class NoMediaInPost(MfpError):
     text_manifest: object | None = None
 
 
+class PostUnavailable(MfpError):
+    """The platform answered with its own "this post cannot be shown" page.
+
+    Split out of `upstream_structure_change` on 2026-09-23 (P-94), the fourth
+    code carved out of that `else` branch. Measured on a real Instagram post
+    that exited 5: the page loaded, carried no canonical link and no media
+    node, and its initial route was Instagram's own error page
+    (`polarisRouteConfig.pageID == "httpErrorPage"`, `PolarisErrorRoot`),
+    rendering 「Post無法顯示」. Nothing about our parser was wrong.
+
+    What the program does NOT determine, and so never says: WHY the post is
+    not shown. The page's own `failure_reason` field was null on the measured
+    capture, and its sentence ("the link may be broken, or the profile
+    removed") offers two causes without choosing. Removed, private and
+    region-limited are all candidates; logged out (D-2), nothing here can
+    tell them apart.
+
+    Exit 3, with `no_media_in_post`: nothing here can be fetched, and
+    retrying the same URL cannot change what the platform decided to show.
+    """
+
+    error_code = "post_unavailable"
+    exit_code = 3
+
+
 class MediaTransferFailedError(MfpError):
     """Per-item media download failure."""
 
@@ -385,6 +410,7 @@ TAXONOMY: dict[str, type[MfpError]] = {
         UpstreamStructureChange,
         UpstreamUnreachable,
         NoMediaInPost,
+        PostUnavailable,
         MediaTransferFailedError,
         PlatformTransferBlocked,
         LinkExpired,

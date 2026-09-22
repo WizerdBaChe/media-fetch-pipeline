@@ -39,7 +39,7 @@ from typing import Any, Iterator, Literal
 from urllib.parse import parse_qs, urlsplit
 from xml.etree import ElementTree
 
-from mfp.errors import NoMediaInPost, UpstreamStructureChange
+from mfp.errors import NoMediaInPost, PostUnavailable, UpstreamStructureChange
 from mfp.models import ExcludedFormats, MediaItem, Variant
 
 #: Hosts whose assets are never post media (TRAP-3).
@@ -1353,6 +1353,73 @@ def looks_like_login_wall(html: str) -> bool:
     return bool(_PASSWORD_INPUT_RE.search(html) or _LOGIN_FORM_RE.search(html))
 
 
+#: The page ID Instagram gives its own error route. Read off the route config
+#: in the payload, never off the rendered sentence: the sentence is localised
+#: (「Post無法顯示」 on the measured capture) and the ID is not (P-77).
+_HTTP_ERROR_PAGE_ID = "httpErrorPage"
+
+
+@dataclass(frozen=True)
+class PlatformErrorPage:
+    """Instagram's own "this cannot be shown" route, as the page declares it.
+
+    Every field is copied from the page, none is interpreted. `failure_reason`
+    and `restricted_age` are carried because they are the fields that COULD
+    say why -- and on the one measured capture both were null, which is
+    exactly why the error built from this never names a cause.
+    """
+
+    page_id: str
+    #: `PolarisErrorRoot.react` on the measured capture; None if the route
+    #: names no resource.
+    resource: str | None = None
+    #: `MEDIA` on the measured capture: the error is about a post URL.
+    page_type: str | None = None
+    #: Copied raw: their type when non-null has never been observed, and
+    #: coercing an unseen shape to None would erase the one field that
+    #: might someday say why.
+    failure_reason: Any = None
+    restricted_age: Any = None
+
+
+def platform_error_page(html: str) -> PlatformErrorPage | None:
+    """The error route the page was rendered as, or None for any other page.
+
+    Measured 2026-09-23 on a real Instagram post that `probe` reported as a
+    structure change: the initial route carries
+    `polarisRouteConfig == {"pageID": "httpErrorPage"}` beside a `rootView`
+    whose resource is `PolarisErrorRoot.react`. Every post page captured so
+    far carries `pageID == "postPage"` in the same place (both Instagram
+    fixtures), and the three Threads captures carry no `polarisRouteConfig`
+    at all, so neither can be mistaken for this.
+
+    A statement the page makes about itself, read from a parsed field --
+    the same standard `canonical_post_code` holds identity to.
+    """
+    for payload in iter_script_payloads(html):
+        for node in walk_objects(payload):
+            config = node.get("polarisRouteConfig")
+            if not isinstance(config, dict) or config.get("pageID") != _HTTP_ERROR_PAGE_ID:
+                continue
+            root_view = node.get("rootView")
+            root_view = root_view if isinstance(root_view, dict) else {}
+            resource = root_view.get("resource")
+            props = root_view.get("props")
+            props = props if isinstance(props, dict) else {}
+
+            def text(value: Any) -> str | None:
+                return value if isinstance(value, str) else None
+
+            return PlatformErrorPage(
+                page_id=_HTTP_ERROR_PAGE_ID,
+                resource=text(resource.get("__dr")) if isinstance(resource, dict) else None,
+                page_type=text(props.get("page_type")),
+                failure_reason=props.get("failure_reason"),
+                restricted_age=props.get("restricted_age"),
+            )
+    return None
+
+
 def iter_dash_manifests(html: str) -> list[str]:
     """Every `video_dash_manifest` string on the page, decoded.
 
@@ -1425,6 +1492,7 @@ def extract_post_or_raise(html: str, *, shortcode: str) -> ExtractedPost:
     ==================  ==============  ========  ==========================
     post node located   offers media    usable    verdict
     ==================  ==============  ========  ==========================
+    no, error route     --              --        `post_unavailable`
     no                  --              --        `upstream_structure_change`
     yes                 yes             none      `upstream_structure_change`
     yes                 no              --        `no_media_in_post`
@@ -1446,6 +1514,14 @@ def extract_post_or_raise(html: str, *, shortcode: str) -> ExtractedPost:
 
     The residual case still raises `UpstreamStructureChange` and now MEANS
     it: no canonical link, no media node, nothing on the page to point at.
+
+    **Except when the page says what it is instead** (P-94, 2026-09-23). The
+    first row used to be one row, and a real Instagram post landed in it with
+    exit 5: no canonical, no media node -- because the page was Instagram's
+    own error route, not a post page. That is a statement the page makes in
+    a parsed field (`platform_error_page`), so it is checked only where the
+    post could not be located. A page that located a post is never
+    reclassified by it, whatever else the page carries.
     """
     post = extract_post(html)
     if post.items:
@@ -1453,6 +1529,23 @@ def extract_post_or_raise(html: str, *, shortcode: str) -> ExtractedPost:
 
     node = locate_post_node(html)
     if node is None:
+        error_page = platform_error_page(html)
+        if error_page is not None:
+            raise PostUnavailable(
+                f"Instagram answered {shortcode} with its own error page "
+                f"({error_page.page_id}) instead of the post: it will not show "
+                "this post to a logged-out reader. WHY is not determined -- the "
+                "page's own failure_reason is "
+                f"{error_page.failure_reason!r}. Nothing to download, and "
+                "retrying the same URL will not change it.",
+                shortcode=shortcode,
+                html_length=len(html),
+                page_id=error_page.page_id,
+                resource=error_page.resource,
+                page_type=error_page.page_type,
+                failure_reason=error_page.failure_reason,
+                restricted_age=error_page.restricted_age,
+            )
         raise UpstreamStructureChange(
             f"page for {shortcode} loaded but the post could not be located on "
             "it at all -- no canonical link naming a post, and no media node to "
@@ -1486,6 +1579,8 @@ __all__ = [
     "SEGMENTED_ADDRESSING_TAGS",
     "iter_dash_manifests",
     "looks_like_login_wall",
+    "PlatformErrorPage",
+    "platform_error_page",
     "DashRepresentation",
     "balanced_object_slices",
     "dash_unavailable",

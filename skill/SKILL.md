@@ -121,9 +121,9 @@ access working. Report it, say when `budget.nextAllowedAt` is, and stop.
 | 0 | Every requested item succeeded | Report the paths |
 | 1 | Partial — at least one item failed, successes kept | Report both halves; read `posts[]` for which |
 | 2 | Usage error | Fix the command; the message says what is wrong |
-| 3 | Unsupported or unparseable URL — **or a post that simply has no media** | Read `errorCode`. `unsupported_url` means the URL shape is not supported; `no_media_in_post` means the post was read fine and holds nothing to download (an X post with only text or images). Either way: do not try variations, do not retry |
+| 3 | Unsupported or unparseable URL — **or a post that simply has no media, or one the platform will not show** | Read `errorCode`. `unsupported_url` means the URL shape is not supported; `no_media_in_post` means the post was read fine and holds nothing to download (an X post with only text or images); `post_unavailable` means Instagram answered with its own "cannot be shown" page — say the post is not visible logged out, and do **not** say it was deleted: removed, private and region-limited look the same from here. In every case: do not try variations, do not retry |
 | 4 | Blocked or rate-limited upstream | **Stop.** Report it. No retry |
-| 5 | Upstream structure change | The site changed shape; this needs a code fix, not a retry. Say so. Narrower than it used to be: "the post has no video" moved to exit 3, so exit 5 no longer fires on an ordinary text-only post |
+| 5 | Upstream structure change | The site changed shape; this needs a code fix, not a retry. Say so. Narrower than it used to be: "the post has no video" and "the platform's own error page" moved to exit 3, so exit 5 no longer fires on an ordinary text-only post or an unavailable one |
 | 6 | Missing dependency | Name the missing tool from the message; `mfp doctor` lists all four |
 | 7 | Local fetch budget exhausted | **Stop.** Report `budget.nextAllowedAt`. No retry |
 

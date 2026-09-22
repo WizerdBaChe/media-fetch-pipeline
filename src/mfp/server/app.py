@@ -129,6 +129,10 @@ ERROR_STATUS: dict[str, int] = {
     # has nothing to download. Nothing upstream is broken, so it must not
     # share a status with the code that means our parser is now wrong.
     "no_media_in_post": 422,
+    # 422 again, not 502 (P-94): the platform answered cleanly, with its own
+    # "this post cannot be shown" page. A fact about the URL, not a fault
+    # upstream and not our parser.
+    "post_unavailable": 422,
     # The `stack` family. 422 for the same reason `no_media_in_post` is:
     # the video was read fine and does not hold what was asked for, which is
     # a fact about the request, not a fault upstream or here.
@@ -224,7 +228,7 @@ def create_app(
 
     app = FastAPI(
         title="media-fetch-pipeline",
-        version="2.0.1",
+        version="2.0.2",
         docs_url=None,
         redoc_url=None,
         lifespan=lifespan,

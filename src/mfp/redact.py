@@ -34,7 +34,11 @@ import hashlib
 import re
 from dataclasses import dataclass
 
-from mfp.adapters.instagram.extract import extract_items, locate_post_node
+from mfp.adapters.instagram.extract import (
+    extract_items,
+    locate_post_node,
+    platform_error_page,
+)
 
 #: JSON keys whose values identify a person or reproduce their words.
 #: `accessibility_caption` is here even though `extract.py` reads it: the
@@ -135,6 +139,15 @@ class RedactionReport:
     post_located_before: bool = True
     post_located_after: bool = True
 
+    #: Whether the page reads as the platform's own error route, in each
+    #: copy. The third shape, for the third kind of page: an error page has
+    #: no items AND no post, so without this the two checks above are both
+    #: trivially equal and it was refused as empty -- which is why the page
+    #: that produced P-94 could not be committed until this existed. Default
+    #: False, not True: absence is the ordinary answer for a post page.
+    error_page_before: bool = False
+    error_page_after: bool = False
+
     @property
     def preserved(self) -> bool:
         """Safe to commit: the shape survived AND the identity did not.
@@ -151,12 +164,13 @@ class RedactionReport:
         empty fixture, which passes forever and tests nothing. Something has
         to be there before "it survived" can be said at all.
         """
-        observable = self.items_before > 0 or self.post_located_before
+        observable = self.items_before > 0 or self.post_located_before or self.error_page_before
         return (
             observable
             and self.items_before == self.items_after
             and self.variants_before == self.variants_after
             and self.post_located_before == self.post_located_after
+            and self.error_page_before == self.error_page_after
             and self.secrets_leaked == 0
         )
 
@@ -378,6 +392,8 @@ def verify_redaction(original: str, redacted: str) -> RedactionReport:
         secrets_leaked=count_leaked_secrets(original, redacted),
         post_located_before=locate_post_node(original) is not None,
         post_located_after=locate_post_node(redacted) is not None,
+        error_page_before=platform_error_page(original) is not None,
+        error_page_after=platform_error_page(redacted) is not None,
     )
 
 
@@ -422,6 +438,10 @@ def redact_and_verify(html: str) -> tuple[str, RedactionReport]:
         # `preserved` would have been decided by a default (2026-09-11).
         post_located_before=report.post_located_before,
         post_located_after=report.post_located_after,
+        # Carried for the same reason, in the other direction: these default
+        # to False, so dropping them would refuse every error page as empty.
+        error_page_before=report.error_page_before,
+        error_page_after=report.error_page_after,
     )
 
 

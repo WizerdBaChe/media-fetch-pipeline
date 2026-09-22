@@ -29,7 +29,11 @@ from typing import Callable, Sequence
 
 from mfp.adapters.instagram.chrome import Connector, Launcher, chrome_session
 from mfp.config import AppConfig
-from mfp.adapters.instagram.extract import extract_items, looks_like_login_wall
+from mfp.adapters.instagram.extract import (
+    extract_items,
+    looks_like_login_wall,
+    platform_error_page,
+)
 from mfp.redact import redact_and_verify
 
 #: Where captured pages live. Committed, so `extract.py` has something to be
@@ -177,6 +181,10 @@ def write_fixture(
         # The same predicate the adapter uses, so a fixture cannot report a
         # state the adapter would disagree with.
         "hasLoginForm": looks_like_login_wall(html),
+        # Same reasoning: the adapter's own predicate. True marks a page that
+        # is NOT a post page, which is what keeps it out of the post-page
+        # assertions in `test_real_fixtures.py`.
+        "platformErrorPage": platform_error_page(html) is not None,
         # Provenance for the committed copy: how much was scrubbed, and
         # whether the scrub was proved harmless.
         "redaction": {
@@ -201,6 +209,11 @@ def write_fixture(
             "postLocatedBeforeAfter": [
                 redaction.post_located_before,
                 redaction.post_located_after,
+            ],
+            # The only shape an error page has (P-94): no items, no post.
+            "errorPageBeforeAfter": [
+                redaction.error_page_before,
+                redaction.error_page_after,
             ],
         },
     }
