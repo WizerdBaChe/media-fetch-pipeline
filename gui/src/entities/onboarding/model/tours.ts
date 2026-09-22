@@ -35,44 +35,31 @@ export interface Tour {
    *  it is the paragraph a person needs BEFORE they spend twenty minutes,
    *  and folding it into step 4 is how it stops being read. */
   caveat?: string;
+  /**
+   * The control names these steps tell the reader to press, spelled exactly
+   * as the workspace spells them.
+   *
+   * Declared rather than inferred from the prose, because a quote is not
+   * always a control -- 「畫面有沒有變」 is a question, not a button. The
+   * workspace's own test renders it and asserts each of these exists, and
+   * `tours.test.ts` asserts each is actually quoted in a step: two
+   * directions, so neither the guide nor the button can drift alone.
+   *
+   * The defect this exists for (F8): the guide said 「選擇檔案」, 逐字稿 and
+   * 文件翻譯 called the button 選檔案…, and 引用長圖 called it 選擇檔案… --
+   * three names, and a first-time reader looking for the words they had just
+   * been given found none of them.
+   */
+  controls?: readonly string[];
+  /**
+   * Quotes in these steps that are NOT control names, with the reason they
+   * are quoted at all. Listed so the rule above has no silent gap: every
+   * 「」 in a tour is a settings pointer, a control, or one of these.
+   */
+  prose?: readonly string[];
 }
 
 export const TOURS: Record<string, Tour> = {
-  transcript: {
-    id: "transcript",
-    title: "逐字稿怎麼用",
-    lede: "把一段錄音或影片變成有時間標記的文字稿，全部在這台電腦上做，不會上傳到任何地方。",
-    steps: [
-      {
-        title: "1. 選一個檔案",
-        body:
-          "按「選擇檔案」挑一個影片或錄音檔；也可以從佇列裡剛下載好的項目直接送過來。" +
-          "如果那部影片本身就附了字幕，程式會先用字幕，這樣最快也最準。",
-      },
-      {
-        title: "2. 第一次要先準備語音辨識",
-        body:
-          "沒有字幕的檔案要靠語音辨識聽寫。這需要另外準備一個辨識引擎和一份語音模型，" +
-          "在「設定 → 語音辨識與翻譯」裡照著上面的指示做一次就好，之後都不用再設定。",
-      },
-      {
-        title: "3. 按下開始，然後等",
-        body:
-          "一小時的錄音大約要幾分鐘到十幾分鐘，取決於這台電腦。" +
-          "進行中可以切到別的畫面，進度會顯示在最下面那一行，不會因為離開就中斷。",
-      },
-      {
-        title: "4. 修稿：校正與整理",
-        body:
-          "跑完之後可以用「校正」把專有名詞改對（要先在詞庫裡登記過那些詞），" +
-          "用「整理」把口頭禪和重複的字拿掉。原始稿一定會留著，修改都會另存成新檔。",
-      },
-    ],
-    caveat:
-      "機器聽寫一定會有錯，尤其是專有名詞、人名和中英文夾雜的段落。這份稿子適合拿來找重點、做筆記，" +
-      "不適合直接當成逐字紀錄使用——請自己看過一遍。",
-  },
-
   quotestack: {
     id: "quotestack",
     title: "引用長圖怎麼用",
@@ -97,29 +84,8 @@ export const TOURS: Record<string, Tour> = {
     caveat:
       "它是靠「畫面有沒有變」來判斷字幕換了沒有，所以字幕是硬燒在畫面上的影片效果最好；" +
       "字幕會慢慢淡入淡出、或背景一直在動的影片，可能會多出或漏掉幾張。",
-  },
-
-  translatedoc: {
-    id: "translatedoc",
-    title: "文件翻譯怎麼用",
-    lede: "把一份純文字或 Markdown 文件整份翻成另一種語言，一樣全部在本機處理。",
-    steps: [
-      {
-        title: "1. 選文件、選語言",
-        body: "支援 .txt 和 .md。選好來源語言和目標語言之後按開始。",
-      },
-      {
-        title: "2. 第一次要先準備翻譯模型",
-        body:
-          "翻譯用的是另一份模型，跟語音辨識的不是同一個。" +
-          "同樣在「設定 → 語音辨識與翻譯」裡加一次就好。",
-      },
-      {
-        title: "3. 結果會另存成新檔",
-        body: "原本那份文件不會被改到。翻譯結果會存成一個檔名帶語言代碼的新檔案。",
-      },
-    ],
-    caveat: "機器翻譯適合用來看懂大意，正式用途請找人校對過。",
+    // The one quote here is the QUESTION the comparison asks, not a button.
+    prose: ["畫面有沒有變"],
   },
 
   brief: {
@@ -145,6 +111,8 @@ export const TOURS: Record<string, Tour> = {
     caveat:
       "這個程式永遠不會登入任何帳號，所以只能處理不用登入就看得到的貼文。" +
       "抓下來的內容請自行確認著作權和使用範圍。",
+    // 「看懂」 is the thing this program does NOT do. Quoted for emphasis.
+    prose: ["看懂"],
   },
 };
 

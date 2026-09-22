@@ -5,7 +5,7 @@
 > **公開倉庫只有主程式。** 測試套件（`tests/`、`gui/e2e/`、所有 `*.test.*`）與
 > 內部記錄留在開發樹裡，所以在公開樹上請用 `scripts\build-all.ps1 -SkipTests`
 > 建置。下面「測試」那一節描述的是完整開發樹，寫在這裡是因為它說明了這個專案
-> 為什麼是現在這個樣子——四個 runner 裡有兩個是刻意分開的。
+> 為什麼是現在這個樣子——Playwright 是刻意分開的第二個 runner。
 
 ## 需要什麼
 
@@ -17,8 +17,8 @@
 | Chrome | 任一近期版本 | `probe` 用真瀏覽器取 HTML，不渲染 |
 | yt-dlp / ffmpeg | 近期版本 | `mfp tools` 印出狀態**與現在跑的是哪一份**；`mfp doctor` 只答有沒有 |
 
-語音辨識與翻譯**不在**上表：它是選用的能力，要另外準備一個 Python 引擎環境
-（`faster-whisper` / `CTranslate2`）與模型，由應用內的「語音辨識與翻譯」設定頁引導。
+這個程式**不做**語音辨識與翻譯：那一整族功能在 2026-09-16 移除（D-162），
+最後一份還有它的原始碼樹是 tag `pre-transcript-removal-2026-09-16`。
 
 ## 裝起來
 
@@ -45,37 +45,31 @@ scripts\dev-start.bat
 npm --prefix electron run dev
 ```
 
-## 測試——四個 runner，其中兩個不在預設裡
+## 測試——四個 runner，其中一個不在預設裡
 
 ```powershell
-.venv\Scripts\python.exe -m pytest -q          # 2,583 passed, 2 skipped @ 2026-09-02
-cd gui && npm run check                        # eslint + tsc --noEmit + vitest 689
-cd electron && npm run check                   # tsc + vitest
+.venv\Scripts\python.exe -m pytest -q          # 2,115 passed, 3 skipped @ 2026-09-16
+cd gui && npm run check                        # eslint + tsc --noEmit + vitest 490
+cd electron && npm run check                   # tsc + vitest 35
 scripts\test-all.bat                           # 上面三個一起跑，前面紅了後面照跑
 ```
 
-另外兩個是**第二個 runner**，不是第二套單元測試，而且**不在** `pytest -q` 裡：
+另外一個是**第二個 runner**，不是第二套單元測試，而且**不在** `pytest -q` 裡：
 
 ```powershell
-cd gui && npm run test:geometry                # Playwright 29
-.venv\Scripts\python.exe -m pytest tests\conformance   # 真引擎 + 已知音檔，9 項
+cd gui && npm run test:geometry                # Playwright 49
 ```
 
 - **Playwright**（D-84），因為 jsdom 沒有版面引擎——那裡每一個
   `getBoundingClientRect()` 都回 0，對齊缺陷在它眼裡不存在，而且一直不存在。
   裡面每一條斷言都是**相對的**：表頭的邊對上自己那一欄內容的邊，儲存格的中線
   對上自己那一列的中線。絕對像素期望值只會教人去改那個數字，而不是去讀那個失敗。
-  四支 spec：`queue-geometry`、`design-system`、`settings-mode`、`resilience`。
+  六支 spec：`queue-geometry`、`design-system`、`settings-mode`、`navigation`、
+  `explain-post`、`first-run`。
 
   它預設**裝上 Electron 的 preload 橋接器**（`e2e/fixtures.installDesktopBridge`）。
   這不是方便，是必要：沒有橋接器時「開啟檔案位置」會畫成「複製路徑」，少 25px，
   於是表格裡最寬的那一格只存在於沒人量的那個殼裡——這正是 P-66。
-
-- **`tests/conformance`**（D-110），因為它需要外部語音引擎、一個 3 GB 模型與
-  合成音檔。它是**唯一**看得見「內容被刪掉」的那一層：一份掉光所有英文詞的
-  逐字稿讀起來通順、標點正確，而且能通過全部單元測試（P-50）。任何動到辨識的
-  改動，發版前跑它。音檔用 `python tests/conformance/make_fixtures.py` 重新產生；
-  引擎、模型或語音缺任何一個，它會**跳過並說原因**，絕不因為缺東西而失敗。
 
 ## 發版
 
@@ -99,7 +93,7 @@ scripts\smoke-package.bat        # 讓打包出來的東西自己證明它跑得
 ## 專案長怎樣
 
 ```
-src/mfp/          Python 核心。cli.py 是 19 個 verb 的入口，server/ 是 /v1
+src/mfp/          Python 核心。cli.py 是 13 個 verb 的入口，server/ 是 /v1
   adapters/       平台配接器（instagram/、ytdlp.py）
 gui/              React renderer，FSD 六層
   src/app|pages|widgets|features|entities|shared
@@ -107,7 +101,7 @@ gui/              React renderer，FSD 六層
 electron/         桌面殼：main、preload、contracts
 skill/SKILL.md    給 AI 助手的呼叫契約
 scripts/          可以點兩下的 .bat + 它旁邊的 .ps1（改 .ps1，永遠別改 .bat）
-tests/            pytest；tests/conformance 是第二個 runner
+tests/            pytest
 docs/             規格（PSM）、驗收清單、spike 記錄、架構健檢
 references/       決策與踩坑、名詞表、phase log——這個專案的記憶
 ```

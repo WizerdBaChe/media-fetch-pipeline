@@ -9,6 +9,7 @@
 
 import type { ParsedItem, ParseResult } from "@/shared/api/types";
 import { Button } from "@/shared/ui/Button";
+import { useDialog } from "@/shared/ui/useDialog";
 import { blockedPresentation } from "@/shared/lib/blocked";
 import { platformLabel } from "@/shared/lib/platform";
 import { foundNothing, summarizeReport } from "../model/preview";
@@ -25,13 +26,25 @@ interface ParsePreviewDialogProps {
   onCancel: () => void;
 }
 
-export function ParsePreviewDialog({
+/** The open/closed switch, kept out of the body so the body may hold hooks:
+ *  a component that returned before `useDialog` would be calling it
+ *  conditionally, and mounting IS the event it is about. */
+export function ParsePreviewDialog({ result, ...rest }: ParsePreviewDialogProps) {
+  if (!result) return null;
+  return <ParsePreviewBody result={result} {...rest} />;
+}
+
+function ParsePreviewBody({
   result,
   busy,
   onConfirm,
   onCancel,
-}: ParsePreviewDialogProps) {
-  if (!result) return null;
+}: ParsePreviewDialogProps & { result: ParseResult }) {
+  // Escape cancels, focus starts on 取消 and goes back to the control that
+  // opened this when it closes (F10). The reader arrives here having just
+  // pressed Enter in the textarea behind; without this, pressing it again
+  // re-submitted that textarea.
+  const { surface, initial } = useDialog<HTMLDivElement, HTMLButtonElement>(onCancel);
 
   const changes = summarizeReport(result.report);
   const nothing = foundNothing(result);
@@ -55,6 +68,8 @@ export function ParsePreviewDialog({
         aria-modal="true"
         aria-label="確認要加入的項目"
         data-testid="parse-preview"
+        tabIndex={-1}
+        ref={surface}
         onClick={(event) => event.stopPropagation()}
       >
         <h2 className="mfp-modal__title">{title}</h2>
@@ -121,7 +136,9 @@ export function ParsePreviewDialog({
         )}
 
         <div className="mfp-modal__actions">
-          <Button onClick={onCancel}>{nothing ? "關閉" : "取消"}</Button>
+          <Button ref={initial} onClick={onCancel}>
+            {nothing ? "關閉" : "取消"}
+          </Button>
           {!nothing && (
             <Button variant="primary" disabled={busy} onClick={onConfirm}>
               {busy ? "加入中…" : `加入佇列（${result.items.length}）`}

@@ -22,8 +22,18 @@ from typing import Any, Callable, Literal
 
 from mfp import logs
 from mfp.adapters.base import FetchContext, PlatformAdapter, standard_fetch
+from mfp.captions import (
+    AUTO_CAPTION_KIND,
+    CAPTION_KIND,
+    CAPTION_KINDS,
+    choose_caption_file,
+    empty_automatic_is_trustworthy,
+    tracks_of,
+)
 from mfp.errors import (
+    BudgetExhausted,
     DependencyMissingError,
+    MfpError,
     NoMediaInPost,
     RateLimitedError,
     UpstreamStructureChange,
@@ -414,6 +424,48 @@ def _sidecars_from_dump(payload: dict) -> list[SidecarAsset]:
     return []
 
 
+def _captions_from_dump(payload: dict, want: str) -> list[SidecarAsset]:
+    """The caption track the caller asked for, out of the probe payload.
+
+    **No second yt-dlp run, and no second request** in the case that matters:
+    `--dump-json` already carries `subtitles` and `automatic_captions`, and
+    the URLs in them are ordinary signed links our own client can GET:
+    measured 2026-09-08 against 2UpQbeAZuqA, HTTP 200 for both the `srt` and
+    the `vtt` of a 157-track video, so yt-dlp's `impersonate: true` on those
+    rows is a hint about how it would fetch them and not a condition of
+    fetching them. That is what keeps this on the right side of D-34 -- a
+    probe costs rate budget, a transfer does not, and this adds a transfer.
+
+    Which track is `captions.choose_caption_file`'s answer, so `mfp fetch`
+    and `mfp stack` both resolve `orig` the same way. What is decided here
+    is only what a caption track IS on this platform.
+    """
+    manual, auto, language = tracks_of(payload)
+    # Danmaku is not one. It rides in `subtitles` under its own key, and
+    # `pick_caption_track` hands back the only written track when there is
+    # exactly one -- so on a Bilibili video whose bullet comments are the
+    # sole entry, asking for the spoken language would return the comments,
+    # and they would be saved twice under two names. Bilibili's real CC
+    # subtitles need a login and are therefore never in this dict (D-2).
+    manual = (
+        {key: value for key, value in manual.items() if key != DANMAKU_LANG}
+        if isinstance(manual, dict)
+        else {}
+    )
+    chosen = choose_caption_file(manual, auto, language, want)
+    if chosen is None:
+        return []
+    return [
+        SidecarAsset(
+            kind=AUTO_CAPTION_KIND if chosen.automatic else CAPTION_KIND,
+            url=chosen.url,
+            ext=chosen.ext,
+            language=chosen.language,
+            request_headers=_carried_headers(chosen.source),
+        )
+    ]
+
+
 def _short_side(variant: Variant) -> int:
     if variant.width and variant.height:
         return min(variant.width, variant.height)
@@ -503,6 +555,7 @@ def manifest_from_dump(
     platform: str,
     url: str,
     audio_language: str | None = None,
+    caption_language: str | None = None,
 ) -> Manifest:
     """Translate one `--dump-json` object into a Manifest.
 
@@ -514,6 +567,12 @@ def manifest_from_dump(
     `audio_language` is the user asking for a specific dub. Absent -- which
     is every call that does not go out of its way -- the video's own audio
     wins; see `pick_audio_track`.
+
+    `caption_language` is `mfp fetch --write-subs`, and None -- every call
+    that did not ask -- records no caption track at all. `orig` means the
+    language the video was SPOKEN in, never a translation of it: this is
+    the same ruling as `audio_language`'s default one field along, and the
+    same reason (D-146/P-49).
     """
     formats = payload.get("formats")
     if not isinstance(formats, list) or not formats:
@@ -561,6 +620,22 @@ def manifest_from_dump(
 
     kind = "video" if payload.get("vcodec") != "none" and not _looks_like_image(payload) else "image"
 
+    sidecars = _sidecars_from_dump(payload)
+    captions_unconfirmed = False
+    if caption_language:
+        chosen_captions = _captions_from_dump(payload, caption_language)
+        sidecars += chosen_captions
+        if not chosen_captions:
+            # Q2: "no track was chosen" has two causes the payload alone
+            # cannot tell apart -- nobody made one, or the automatic list
+            # came back empty from an extractor that answers a refusal the
+            # same way (P-84). Computed from the SHAPE of this payload, never
+            # from its size: `empty_automatic_is_trustworthy` is the same
+            # test `captions.py` uses for the read-time version of this call.
+            _, auto, _ = tracks_of(payload)
+            if not auto and not empty_automatic_is_trustworthy(payload):
+                captions_unconfirmed = True
+
     items = (
         [
             MediaItem(
@@ -568,7 +643,7 @@ def manifest_from_dump(
                 kind=kind,
                 variants=variants,
                 audio=track,
-                sidecars=_sidecars_from_dump(payload),
+                sidecars=sidecars,
             )
         ]
         if variants
@@ -589,6 +664,7 @@ def manifest_from_dump(
             for reason, count in sorted(excluded.items())
             if count
         ],
+        captions_unconfirmed=captions_unconfirmed,
     )
 
 
@@ -636,6 +712,7 @@ def probe(
     executable: str | None = None,
     runner: Runner | None = None,
     audio_language: str | None = None,
+    caption_language: str | None = None,
 ) -> Manifest:
     """Run `yt-dlp --dump-json` and translate the result.
 
@@ -669,7 +746,11 @@ def probe(
         raise YtDlpUnavailable(f"yt-dlp returned a {type(payload).__name__}, expected an object")
 
     manifest = manifest_from_dump(
-        payload, platform=platform, url=url, audio_language=audio_language
+        payload,
+        platform=platform,
+        url=url,
+        audio_language=audio_language,
+        caption_language=caption_language,
     )
     if not manifest.items:
         raise YtDlpUnavailable("yt-dlp returned no downloadable formats")
@@ -731,11 +812,12 @@ class YtDlpAdapter(PlatformAdapter):
         ctx.budget.acquire(platform)
 
         try:
-            return self._probe(
+            manifest = self._probe(
                 url,
                 platform=platform,
                 executable=ctx.config.binaries.yt_dlp,
                 audio_language=ctx.audio_language,
+                caption_language=ctx.caption_language,
             )
         except YtDlpMissing as exc:
             raise DependencyMissingError(
@@ -770,6 +852,59 @@ class YtDlpAdapter(PlatformAdapter):
             raise UpstreamStructureChange(
                 f"yt-dlp ran but returned nothing usable for {url}: {exc}", url=url
             ) from exc
+
+        if manifest.captions_unconfirmed:
+            manifest = self._retry_unconfirmed_captions(manifest, url, platform, ctx)
+        return manifest
+
+    def _retry_unconfirmed_captions(
+        self, first: Manifest, url: str, platform: str, ctx: FetchContext
+    ) -> Manifest:
+        """Q2: ask exactly once more when captions came back unconfirmed.
+
+        "None" and "could not ask" are indistinguishable in a single payload
+        from an extractor in `SILENT_ON_REFUSAL_EXTRACTORS` (P-84), so one
+        re-read is the whole of what this can do about it -- never a loop,
+        because the measured shape is empty reads arriving in RUNS, and more
+        of the same read is more of what may be being refused.
+
+        Paid for as a read-only lookup (`lookup_bucket`), same as every other
+        second look this product takes at a page it already probed. And this
+        may never fail the PROBE: a caller who already has `first` has a
+        complete manifest, just not a confirmed answer about captions, so
+        every failure mode here is swallowed and logged rather than raised.
+        """
+        from mfp.config import lookup_bucket
+
+        try:
+            ctx.budget.acquire(lookup_bucket(platform))
+            second = self._probe(
+                url,
+                platform=platform,
+                executable=ctx.config.binaries.yt_dlp,
+                audio_language=ctx.audio_language,
+                caption_language=ctx.caption_language,
+            )
+        # Every CLASSIFIED outcome (budget, rate limit, unreachable, structure
+        # change, missing yt-dlp ...) is caught: the first read already
+        # succeeded, and a network blip on the second must not undo it. An
+        # unclassified exception is a bug and still surfaces.
+        except (MfpError, YtDlpUnavailable) as exc:
+            logs.record(
+                "ytdlp.caption_retry_failed",
+                url=logs.safe_url(url),
+                reason=type(exc).__name__,
+            )
+            return first
+
+        if any(
+            sidecar.kind in CAPTION_KINDS
+            for item in second.items
+            for sidecar in item.sidecars
+        ):
+            return second
+        logs.record("ytdlp.caption_retry_still_unconfirmed", url=logs.safe_url(url))
+        return first
 
     def fetch(self, manifest: Manifest, policy: Policy, ctx: FetchContext) -> FetchResult:
         return standard_fetch(manifest, policy, ctx, fallback_platform=self.name)

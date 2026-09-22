@@ -15,8 +15,6 @@
  *
  *   - D-80 already drew this line. 「工具」 was chosen over 「擴充功能」 because
  *     tools 「DO something to a video, which separates them from 設定」.
- *   - 設定 opens from INSIDE 逐字稿 and 文件翻譯. A thing reachable from within
- *     a sibling is not that sibling's sibling; it is a layer above.
  *   - Each tool takes a subject and produces a work product, which is why each
  *     carries a `restore` snapshot. 設定 has neither.
  *   - A tool's exit is a DESTINATION (回到佇列). This one's is a RESUMPTION --
@@ -24,9 +22,9 @@
  *
  * So the state stays a boolean orthogonal to `view`, which is what it always
  * was; only the drawing changes. The surface behind is kept MOUNTED and made
- * `inert`: unmounting it would take a transcript that cost minutes to produce
- * down with it, and those snapshots are accepted behaviour that a layout fix
- * has no business overwriting.
+ * `inert`: unmounting it would take a quote-stack in progress down with it,
+ * and those snapshots are accepted behaviour that a layout fix has no
+ * business overwriting.
  *
  * The status bar is deliberately NOT covered. It is the only line no view owns
  * and it is where a 3 GB download reports itself; hiding it behind 設定 would

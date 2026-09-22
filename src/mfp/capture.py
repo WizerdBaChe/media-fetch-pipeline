@@ -119,76 +119,104 @@ def capture_urls(
                                              meta_path=None, error=f"{type(exc).__name__}: {exc}"))
                 continue
 
-            # The raw page is somebody's post. It stays out of git (see
-            # tests/fixtures/_raw/.gitignore) and exists so a failure can be
-            # investigated against what actually arrived.
-            raw_dir = fixture_root / "_raw" / platform
-            raw_dir.mkdir(parents=True, exist_ok=True)
-            (raw_dir / f"{name}.html").write_text(html, encoding="utf-8")
-
-            redacted, redaction = redact_and_verify(html)
-            html_path = target_dir / f"{name}.html"
-            if redaction.preserved:
-                html_path.write_text(redacted, encoding="utf-8")
-            else:
-                # Refusing is the point. A redacted fixture that extracts
-                # differently is testing a shape the redaction invented.
-                html_path = None  # type: ignore[assignment]
-
-            # Run the extractor immediately. The whole point of the fixture is
-            # to answer "does extract.py work on a real page?", and answering
-            # it now costs nothing and turns a silent zero into a visible one.
-            items = extract_items(html)
-            variant_count = sum(len(item.variants) for item in items)
-
-            meta = {
-                "url": url,
-                "platform": platform,
-                "htmlLength": len(html),
-                "itemCount": len(items),
-                "variantCount": variant_count,
-                "kinds": [item.kind for item in items],
-                # The same predicate the adapter uses, so a fixture cannot
-                # report a state the adapter would disagree with.
-                "hasLoginForm": looks_like_login_wall(html),
-                # Provenance for the committed copy: how much was scrubbed,
-                # and whether the scrub was proved harmless.
-                "redaction": {
-                    "committed": redaction.preserved,
-                    "urlsRewritten": redaction.urls_rewritten,
-                    "valuesReplaced": redaction.values_replaced,
-                    # The leak half of the check, recorded because it is the
-                    # half that decides whether this file may be in git at
-                    # all. It was missing here while the two committed
-                    # fixtures carried it from a one-off audit script, so a
-                    # re-capture would have silently dropped the evidence and
-                    # nothing would have failed (2026-08-16).
-                    "secretsLeaked": redaction.secrets_leaked,
-                    "itemsBeforeAfter": [redaction.items_before, redaction.items_after],
-                    "variantsBeforeAfter": [
-                        redaction.variants_before,
-                        redaction.variants_after,
-                    ],
-                },
-            }
-            meta_path = target_dir / f"{name}.meta.json"
-            meta_path.write_text(
-                json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
-
-            results.append(
-                CaptureResult(
-                    url=url,
-                    name=name,
-                    html_path=html_path,
-                    meta_path=meta_path,
-                    html_length=len(html),
-                    item_count=len(items),
-                    variant_count=variant_count,
-                    redaction_ok=redaction.preserved,
-                )
-            )
+            results.append(write_fixture(html, url=url, name=name, platform=platform,
+                                         fixture_root=fixture_root))
     return results
+
+
+def write_fixture(
+    html: str, *, url: str, name: str, platform: str, fixture_root: Path
+) -> CaptureResult:
+    """Everything a capture does once the page is in hand.
+
+    Split out of `capture_pages` on 2026-09-11 so a fixture can be REBUILT
+    from the raw copy already on disk without going back to the platform.
+    That is not a convenience: the committed Threads share-link page is the only
+    artifact that reproduces P-88 -- a text-only post whose extracted video
+    belonged to a recommendation beside it -- and a fresh capture of the same
+    URL may simply not carry that recommendation any more. Re-capturing to
+    pick up a redaction change would have deleted the regression case and
+    left a green suite saying nothing.
+
+    One function, two callers, so the meta a rebuild writes cannot drift from
+    the meta a capture writes.
+    """
+    target_dir = fixture_root / platform
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    # The raw page is somebody's post. It stays out of git (see
+    # tests/fixtures/_raw/.gitignore) and exists so a failure can be
+    # investigated against what actually arrived.
+    raw_dir = fixture_root / "_raw" / platform
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    (raw_dir / f"{name}.html").write_text(html, encoding="utf-8")
+
+    redacted, redaction = redact_and_verify(html)
+    html_path: Path | None = target_dir / f"{name}.html"
+    if redaction.preserved:
+        assert html_path is not None
+        html_path.write_text(redacted, encoding="utf-8")
+    else:
+        # Refusing is the point. A redacted fixture that extracts
+        # differently is testing a shape the redaction invented.
+        html_path = None
+
+    # Run the extractor immediately. The whole point of the fixture is to
+    # answer "does extract.py work on a real page?", and answering it now
+    # costs nothing and turns a silent zero into a visible one.
+    items = extract_items(html)
+    variant_count = sum(len(item.variants) for item in items)
+
+    meta = {
+        "url": url,
+        "platform": platform,
+        "htmlLength": len(html),
+        "itemCount": len(items),
+        "variantCount": variant_count,
+        "kinds": [item.kind for item in items],
+        # The same predicate the adapter uses, so a fixture cannot report a
+        # state the adapter would disagree with.
+        "hasLoginForm": looks_like_login_wall(html),
+        # Provenance for the committed copy: how much was scrubbed, and
+        # whether the scrub was proved harmless.
+        "redaction": {
+            "committed": redaction.preserved,
+            "urlsRewritten": redaction.urls_rewritten,
+            "valuesReplaced": redaction.values_replaced,
+            # The leak half of the check, recorded because it is the half
+            # that decides whether this file may be in git at all. It was
+            # missing here while the two committed fixtures carried it from a
+            # one-off audit script, so a re-capture would have silently
+            # dropped the evidence and nothing would have failed
+            # (2026-08-16).
+            "secretsLeaked": redaction.secrets_leaked,
+            "itemsBeforeAfter": [redaction.items_before, redaction.items_after],
+            "variantsBeforeAfter": [
+                redaction.variants_before,
+                redaction.variants_after,
+            ],
+            # The shape check that has any power at zero items. Recorded
+            # because for a text-only page it is the ONLY one -- the item
+            # counts are 0 == 0 and prove nothing (P-88).
+            "postLocatedBeforeAfter": [
+                redaction.post_located_before,
+                redaction.post_located_after,
+            ],
+        },
+    }
+    meta_path = target_dir / f"{name}.meta.json"
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    return CaptureResult(
+        url=url,
+        name=name,
+        html_path=html_path,
+        meta_path=meta_path,
+        html_length=len(html),
+        item_count=len(items),
+        variant_count=variant_count,
+        redaction_ok=redaction.preserved,
+    )
 
 
 def summarize(results: Sequence[CaptureResult]) -> str:
@@ -223,4 +251,11 @@ def summarize(results: Sequence[CaptureResult]) -> str:
     return "\n".join(lines)
 
 
-__all__ = ["CaptureResult", "DEFAULT_FIXTURE_ROOT", "capture_urls", "fixture_name", "summarize"]
+__all__ = [
+    "CaptureResult",
+    "DEFAULT_FIXTURE_ROOT",
+    "capture_urls",
+    "fixture_name",
+    "summarize",
+    "write_fixture",
+]

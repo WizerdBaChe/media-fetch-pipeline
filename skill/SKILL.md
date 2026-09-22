@@ -65,6 +65,7 @@ Useful flags, all optional:
 | `--dry-run` | Report the planned paths and chosen quality without transferring. Use this when the user asks "what would this download?" |
 | `--allow-silent-video` | Only after a failure says so. When a post's manifest records **no audio track at all**, `fetch` refuses rather than write a file with no sound; this takes the picture anyway and reports `degradedReason`. Ask the user before using it — they are accepting a video with no sound. |
 | `--audio-lang ja` | Take a specific language's audio when the video publishes several. **Leave it off unless the user asked for a dub**: the default is the language the video was recorded in, which is what anyone means by "download this video". |
+| `--write-subs` | Also save the platform's caption track beside the media, named for its language (`talk_00_1080p.en-orig.srt`). Costs no extra request — it comes out of the read `probe` already made — and a post offering none says so on stderr and still downloads. An empty list on YouTube is re-read once (budgeted); empty twice sets `captionsUnconfirmed` and stderr says whether captions exist is **not known** — never report that as "no captions". `--sub-lang ja` picks a different track and implies this flag: **leave it off unless the user named a language**, because the default takes what was SPOKEN and naming one asks for a *translation* (`en` on a Mandarin video returns fluent English nobody said). |
 
 ## Reading the output
 
@@ -132,7 +133,7 @@ A mixed batch — several URLs failing for different reasons — is exit 1, and
 ## The 延伸工具 — named here, taught elsewhere
 
 Everything above is what `mfp` **is**: a URL goes in, files come out, and the
-tool can say where they went. Four other tools ship in the same program. They
+tool can say where they went. Two other tools ship in the same program. They
 are listed rather than explained, and the distinction is deliberate — this
 file used to teach all nineteen verbs, which meant an agent asked to explain
 one Instagram post had to read the entire acquisition contract first.
@@ -141,8 +142,9 @@ one Instagram post had to read the entire acquisition contract first.
 |---|---|---|
 | 引用長圖 | `stack` | The user wants a quote image made from a video's subtitles |
 | 貼文解說 | `brief`, `brief-save` | The user wants to know what is in a post's pictures |
-| 逐字稿 | `transcript`, `translate`, `correct`, `tidy`, `asr-*` | The user wants a video's words as text, or wants to work on a transcript |
-| 文件翻譯 | `translate-doc` | The user has a `.txt`/`.md` to translate |
+
+**It does not turn speech into text** (transcript tools removed 2026-09-16).
+Asked what a video SAYS, say it saves the file and does not transcribe it.
 
 ```bash
 mfp agent-guide --extension brief
@@ -170,11 +172,10 @@ mfp install-path
 mfp doctor --json
 ```
 
-Five checks, with versions and paths. **yt-dlp**, **ffmpeg** and **chrome**
+Four checks, with versions and paths. **yt-dlp**, **ffmpeg** and **chrome**
 are required, and any one of them missing is exit 6. **javascript-runtime**
-and **asr** are capabilities that degrade rather than prerequisites that
-fail: their absence is still exit 0, because most of this tool works without
-either.
+is a capability that degrades rather than a prerequisite that fails: its
+absence is still exit 0.
 
 `gallery-dl` is **not** among them and has not been checked since 2026-08-30
 (D-138). Nothing in this product invokes it, so installing it changes no

@@ -173,23 +173,6 @@ if ($SkipSidecar) {
             throw "the bundle carries no _internal\agent\extensions\$name.md -- mfp agent-guide --extension $name would fail"
         }
     }
-    # ...and the speech-recognition runner. Same failure shape as the Skill:
-    # `mfp.asr.runner_path()` reads this exact path, and without it every
-    # transcription of a local audio file fails at the last moment, after
-    # the engine has already been found and reported healthy.
-    $asrPayload = Join-Path $sidecarDist '_internal\asr\runner.py'
-    if (-not (Test-Path -LiteralPath $asrPayload)) {
-        throw 'the bundle carries no _internal\asr\runner.py -- transcribing audio would fail'
-    }
-    # ...and the translation runner, for exactly the same reason. It was
-    # added to the spec in Phase V and had no assertion here, so the one
-    # thing that would notice it being dropped was a user running `translate`
-    # on an installed build -- which is the failure this check exists to
-    # arrive before.
-    $mtPayload = Join-Path $sidecarDist '_internal\asr\translate_runner.py'
-    if (-not (Test-Path -LiteralPath $mtPayload)) {
-        throw 'the bundle carries no _internal\asr\translate_runner.py -- translating would fail'
-    }
     $exeSize = (Get-Item $exe).Length
     $cliSize = (Get-Item $cliExe).Length
     $treeSize = (Get-ChildItem $sidecarDist -Recurse -File | Measure-Object Length -Sum).Sum

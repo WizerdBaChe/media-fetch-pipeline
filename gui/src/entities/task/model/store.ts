@@ -21,7 +21,9 @@ export interface TaskStoreState {
   load: () => Promise<void>;
   /** Pure preview — nothing enters the queue. Null means the call failed. */
   preview: (text: string) => Promise<ParseResult | null>;
-  add: (text: string) => Promise<ParseReport | null>;
+  /** `writeSubs` null (the default) leaves the new rows following the global
+   *  setting; a boolean pins them for this paste only. */
+  add: (text: string, writeSubs?: boolean | null) => Promise<ParseReport | null>;
   setSelected: (id: string, selected: boolean) => Promise<void>;
   setSelectedAll: (selected: boolean, ids?: string[]) => Promise<void>;
   setPolicy: (id: string, policy: string | null) => Promise<void>;
@@ -95,8 +97,8 @@ export const useTaskStore = create<TaskStoreState>()((set, get) => ({
     return (await guard(set, () => api.parseInput(text))) ?? null;
   },
 
-  add: async (text) => {
-    const response = await guard(set, () => api.addTasks(text));
+  add: async (text, writeSubs = null) => {
+    const response = await guard(set, () => api.addTasks(text, writeSubs));
     // null, not an empty report: "nothing changed" and "the call failed" are
     // different facts, and the caller must not clear the paste box on failure.
     if (!response) return null;

@@ -1,0 +1,419 @@
+{
+  "schema": 1,
+  "title": "media-fetch-pipeline — 現況架構與逐字稿家族的接縫",
+  "as_of": "2026-09-09",
+  "head": "ec6d581",
+  "question": "mfp 今天裡面有什麼，抽出 local-transcript-maker 的那條線切在哪裡",
+  "sources": [
+    {
+      "id": "S1",
+      "what": "tests/unit/test_layering.py 的 CORE / EXTENSIONS / composers 三個集合",
+      "role": "模組歸屬的唯一權威 — 這是機器強制的，不是文件宣稱的"
+    },
+    {
+      "id": "S2",
+      "what": "wc -l 於 2026-09-09 HEAD=ec6d581",
+      "role": "所有行數"
+    },
+    {
+      "id": "S3",
+      "what": "references/media-fetch-pipeline-decisions.md 的 ## Now 前沿 (Z15) 與 D-156",
+      "role": "captions 留下的裁決"
+    },
+    {
+      "id": "S4",
+      "what": "docs/concept-transcript-tool-2026-09-08.md 0.3 / 0.5",
+      "role": "哪些是本質核心、哪些是邊界外"
+    },
+    {
+      "id": "S5",
+      "what": "docs/asr-config-migration-2026-09-08.md",
+      "role": "共用執行環境的位置與大小"
+    },
+    {
+      "id": "S6",
+      "what": "本 session 的直接量測 (mfp asr-status / pytest / conformance)",
+      "role": "狀態表的證據欄"
+    }
+  ],
+  "zones": [
+    {
+      "id": "core",
+      "side": "stay",
+      "title": "CORE — mfp 之所以是 mfp",
+      "subtitle": "拿一個網址、產出檔案、知道檔案去了哪裡",
+      "source": "S1",
+      "members": [
+        {
+          "n": "budget"
+        },
+        {
+          "n": "config"
+        },
+        {
+          "n": "download"
+        },
+        {
+          "n": "errors"
+        },
+        {
+          "n": "index"
+        },
+        {
+          "n": "inputs"
+        },
+        {
+          "n": "logs"
+        },
+        {
+          "n": "models"
+        },
+        {
+          "n": "naming"
+        },
+        {
+          "n": "pipeline"
+        },
+        {
+          "n": "policy"
+        },
+        {
+          "n": "redact"
+        },
+        {
+          "n": "runs",
+          "mark": "contested"
+        },
+        {
+          "n": "toolchain"
+        },
+        {
+          "n": "winpath"
+        },
+        {
+          "n": "captions",
+          "mark": "ruled"
+        }
+      ]
+    },
+    {
+      "id": "ext_stay",
+      "side": "stay",
+      "title": "EXTENSIONS — 留下的",
+      "subtitle": "各自完整的工具，剛好住在這個 repo 裡",
+      "source": "S1+S4",
+      "members": [
+        {
+          "n": "brief",
+          "note": "只對代理人開放"
+        },
+        {
+          "n": "stack"
+        }
+      ]
+    },
+    {
+      "id": "composers",
+      "side": "stay",
+      "title": "composers — 把上面組起來的",
+      "subtitle": "既不是核心也不是擴充，定義上就是組裝者",
+      "source": "S1",
+      "members": [
+        {
+          "n": "cli"
+        },
+        {
+          "n": "serve"
+        },
+        {
+          "n": "doctor"
+        },
+        {
+          "n": "agent"
+        },
+        {
+          "n": "capabilities"
+        },
+        {
+          "n": "queue"
+        },
+        {
+          "n": "mediatool"
+        },
+        {
+          "n": "sidecar"
+        },
+        {
+          "n": "capture"
+        }
+      ]
+    },
+    {
+      "id": "ext_go",
+      "side": "go",
+      "title": "EXTENSIONS — 要走的",
+      "subtitle": "src/mfp/ 之下，8,043 行",
+      "source": "S1+S4",
+      "members": [
+        {
+          "n": "asr_models",
+          "lines": 2072
+        },
+        {
+          "n": "asr",
+          "lines": 968
+        },
+        {
+          "n": "quality",
+          "lines": 935
+        },
+        {
+          "n": "translate",
+          "lines": 757
+        },
+        {
+          "n": "correct",
+          "lines": 726
+        },
+        {
+          "n": "translate_doc",
+          "lines": 629
+        },
+        {
+          "n": "refine",
+          "lines": 518
+        },
+        {
+          "n": "transcript",
+          "lines": 515
+        },
+        {
+          "n": "tidy",
+          "lines": 467
+        },
+        {
+          "n": "cues",
+          "lines": 331
+        },
+        {
+          "n": "runs_transcript",
+          "lines": 125,
+          "note": "runs.py 拆出來的那一半"
+        }
+      ]
+    },
+    {
+      "id": "sidecar",
+      "side": "go",
+      "title": "獨立引擎行程",
+      "subtitle": "asr/ 之下，1,861 行 — 不在 mfp 的行程裡跑",
+      "source": "S2",
+      "members": [
+        {
+          "n": "runner.py",
+          "lines": 1354
+        },
+        {
+          "n": "translate_runner.py",
+          "lines": 304
+        },
+        {
+          "n": "fetch_model.py",
+          "lines": 203
+        }
+      ]
+    },
+    {
+      "id": "gui_go",
+      "side": "go",
+      "title": "GUI 的逐字稿面",
+      "subtitle": "gui/src/ 之下，4,285 行",
+      "count_rule": "該目錄下的 .ts/.tsx，排除 *.test.* 與 *.spec.*",
+      "source": "S2",
+      "members": [
+        {
+          "n": "transcript-workspace",
+          "dir": "gui/src/widgets/transcript-workspace",
+          "lines": 941
+        },
+        {
+          "n": "read-transcript",
+          "dir": "gui/src/features/read-transcript",
+          "lines": 546
+        },
+        {
+          "n": "refine-transcript",
+          "dir": "gui/src/features/refine-transcript",
+          "lines": 941
+        },
+        {
+          "n": "translate-transcript",
+          "dir": "gui/src/features/translate-transcript",
+          "lines": 98
+        },
+        {
+          "n": "translate-document",
+          "dir": "gui/src/features/translate-document",
+          "lines": 136
+        },
+        {
+          "n": "setup-asr",
+          "dir": "gui/src/features/setup-asr",
+          "lines": 1623
+        }
+      ]
+    },
+    {
+      "id": "api_go",
+      "side": "go",
+      "title": "服務層路由",
+      "subtitle": "1,380 行",
+      "source": "S2",
+      "members": [
+        {
+          "n": "routes_transcript.py",
+          "lines": 1049
+        },
+        {
+          "n": "routes_asr.py",
+          "lines": 331
+        }
+      ]
+    }
+  ],
+  "shared": {
+    "title": "共用執行環境 — 兩邊都用，誰都不擁有",
+    "note": "2026-09-08 從待刪的 Local-AI-Transcriber-Pro 搬出來的。設定裡是絕對路徑，不是連結。",
+    "source": "S5+S6",
+    "members": [
+      {
+        "n": "_runtimes\\asr-py",
+        "detail": "Python 3.12 + faster-whisper 1.2.1",
+        "size": "416 MB"
+      },
+      {
+        "n": "_runtimes\\models\\faster-whisper-large-v3",
+        "detail": "辨識模型",
+        "size": "2.9 GB"
+      },
+      {
+        "n": "_runtimes\\models\\nllb-200-distilled-1.3B-ct2-int8",
+        "detail": "翻譯模型",
+        "size": "1.3 GB"
+      }
+    ]
+  },
+  "seam": {
+    "label": "接縫",
+    "criterion": "這一步需要模型「判斷意思」嗎？",
+    "detail": "需要 → 走。mfp 只跑引擎（把位元組變成另一種位元組，結果可以拿輸入去驗），永遠不跑判斷模型（D-88 / D-149）。"
+  },
+  "callouts": [
+    {
+      "id": "C1",
+      "kind": "ruled",
+      "anchor": "runs",
+      "title": "runs.py 已裁定拆成兩份（2026-09-09）",
+      "body": "使用者裁定「拆成兩份」。record_transcript() 與 Run.captions() 搬到 runs_transcript.py，跟家族一起走；runs.py 留下的是一個 store — 資料夾、marker、只建不覆寫、一組名字一個流水號、路徑階梯，沒有一項知道逐字稿是什麼。字幕檔/ 文字檔/ 留在 runs.py：那是使用者裁過的版面（D-122），brief 也寫進去，按副檔名分流不等於知道檔案的意思。匯入圖看不見形狀，所以形狀改由 test_runs_transcript.py::TestTheSeam 檢查，並帶一根真的針。"
+    },
+    {
+      "id": "C2",
+      "kind": "ruled",
+      "anchor": "captions",
+      "title": "captions 已經裁定留下（2026-09-08）",
+      "body": "抓平台自己的字幕軌是「取得」，不是「分析」，而且不多花任何一次請求。cues 沒有跟著過去 — 解析檔案並判定一句是什麼，那是分析。這一對現在由閘門強制，不靠審查者記得。"
+    }
+  ],
+  "status_rows": [
+    {
+      "item": "逐字稿家族已離開 mfp",
+      "state": "no",
+      "evidence": "12 個檔全在，0 行移出（wc -l @ ec6d581）"
+    },
+    {
+      "item": "local-transcript-maker repo 已建立",
+      "state": "no",
+      "evidence": "D:\\AIWork\\local-transcript-maker 不存在"
+    },
+    {
+      "item": "設計文件",
+      "state": "partial",
+      "evidence": "CIM v1.0 定稿；PIM v0.1 是 DRAFT，自陳五項骨架缺口（PIM 13）"
+    },
+    {
+      "item": "驗證硬閘（全梯第三階）",
+      "state": "no",
+      "evidence": "未跑。CIM 0.6 裁定不得跳過"
+    },
+    {
+      "item": "mfp 本體可用",
+      "state": "yes",
+      "evidence": "pytest 2704 passed / 2 skipped"
+    },
+    {
+      "item": "聽寫與翻譯可用",
+      "state": "yes",
+      "evidence": "asr-status 兩項 [READY]；conformance 14 passed（不用環境變數覆寫）"
+    },
+    {
+      "item": "引擎與模型已搬到中性位置",
+      "state": "yes",
+      "evidence": "D:\\AIWork\\_runtimes\\，全鏈路無 junction，model.bin SHA256 兩邊相同"
+    },
+    {
+      "item": "git 乾淨",
+      "state": "yes",
+      "evidence": "一條 branch、一棵樹、main == origin/main == ec6d581、工作區 0 變更"
+    },
+    {
+      "item": "release 是當前的",
+      "state": "yes",
+      "evidence": "1.0.0 建於 110b918，四階段 OK；之後只改過 docs/ references/ .gitignore"
+    },
+    {
+      "item": "release/ 有殘留",
+      "state": "attention",
+      "evidence": "9/4 的 0.1.0 一對 exe（各 ~107 MB）還躺在 1.0.0 旁邊"
+    },
+    {
+      "item": "舊原型可刪",
+      "state": "yes",
+      "evidence": "D:\\AIWork\\Local-AI-Transcriber-Pro 3.5 GB；程式碼在 archive\\，權重在 _runtimes\\，設定已指過去並實測"
+    },
+    {
+      "item": "runs.py 的歸屬",
+      "state": "yes",
+      "evidence": "已拆 — runs_transcript.py（見左圖 C1）"
+    },
+    {
+      "item": "vadSeconds > audioSeconds",
+      "state": "attention",
+      "evidence": "給使用者看的健康數字是錯的（spike-08 五）。屬 mfp，未修"
+    },
+    {
+      "item": "Z15 欠的人工驗收",
+      "state": "attention",
+      "evidence": "要一支有『人工字幕』的影片，看 kind: captions 而不是 auto-captions"
+    }
+  ],
+  "coverage": {
+    "drawn": [
+      "容器圖（模組歸屬 ＋ 接縫）",
+      "狀態表"
+    ],
+    "excluded": [
+      {
+        "view": "每個生命週期實體的狀態機",
+        "why": "新產品的在 PIM 6；mfp 的任務生命週期這一輪沒有變動，也不是本圖要回答的問題"
+      },
+      {
+        "view": "關鍵入口的循序圖",
+        "why": "這一輪沒有任何行為改變 — 只有檔案位置與文件"
+      },
+      {
+        "view": "決策表",
+        "why": "本圖的範圍內沒有守衛密集的分支"
+      }
+    ]
+  }
+}

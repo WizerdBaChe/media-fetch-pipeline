@@ -33,13 +33,14 @@ from typing import Callable, Collection, Iterable, Literal, Sequence
 from urllib.parse import parse_qsl, urlsplit
 
 from mfp.adapters.base import FetchContext, PlatformAdapter
-from mfp.budget import FetchBudgetGovernor
+from mfp.budget import FetchBudgetGovernor, shared_governor
 from mfp.config import AppConfig
 from mfp.download import ProgressCallback, nothing_choosable_detail, plan_destinations
 from mfp.errors import (
     BudgetExhausted,
     LoginWallError,
     MfpError,
+    NoMediaInPost,
     RateLimitedError,
     UnsupportedUrlError,
     UsageError,
@@ -166,16 +167,18 @@ def build_context(
     on_progress: ProgressCallback | None = None,
     allow_silent_video: bool = False,
     audio_language: str | None = None,
+    caption_language: str | None = None,
     post_dir: Path | None = None,
 ) -> FetchContext:
     return FetchContext(
-        budget=governor if governor is not None else FetchBudgetGovernor(config),
+        budget=governor if governor is not None else shared_governor(config),
         config=config,
         output_root=output_root or config.output_root,
         select=select,
         on_progress=on_progress,
         allow_silent_video=allow_silent_video,
         audio_language=audio_language,
+        caption_language=caption_language,
         post_dir=post_dir,
     )
 
@@ -194,6 +197,11 @@ class ProbeOutcome:
     manifest: Manifest | None = None
     error_code: str | None = None
     error_detail: str | None = None
+    #: A `no_media_in_post` failure whose post WAS read: its caption, chain
+    #: and links, media lists empty. Not in `to_row` -- the `probe --json`
+    #: contract for a failed row stays `manifest: null` -- and not `manifest`,
+    #: so `ok` and every transfer path still see a post with nothing to fetch.
+    text_manifest: Manifest | None = None
 
     @property
     def ok(self) -> bool:
@@ -312,6 +320,12 @@ def probe_urls(
                     platform=platform,
                     error_code=exc.error_code,
                     error_detail=str(exc)[:500],
+                    text_manifest=(
+                        exc.text_manifest
+                        if isinstance(exc, NoMediaInPost)
+                        and isinstance(exc.text_manifest, Manifest)
+                        else None
+                    ),
                 )
             )
             batch.stop_reason = _stopper_reported(exc, platform=platform, ctx=ctx)

@@ -1,7 +1,12 @@
-import { useConfigStore, globalPolicyOf } from "@/entities/config/model/store";
+import { useConfigStore, globalPolicyOf, globalWriteSubsOf } from "@/entities/config/model/store";
 import { useSessionStore } from "@/entities/session/model/store";
 import { useTaskStore } from "@/entities/task/model/store";
-import { effectivePolicy, tasksForTab, type TabId } from "@/entities/task/model/selectors";
+import {
+  effectivePolicy,
+  effectiveWriteSubs,
+  tasksForTab,
+  type TabId,
+} from "@/entities/task/model/selectors";
 
 import {
   FULL_LAYOUT_MIN,
@@ -50,6 +55,7 @@ export function QueueTable({ tab, onUseExtension }: QueueTableProps) {
 
   const rows = tasksForTab(tasks, tab);
   const policy = globalPolicyOf(config);
+  const globalWriteSubs = globalWriteSubsOf(config);
   const rowIds = rows.map((task) => task.id);
   const selectedCount = rows.filter((task) => task.selected).length;
   const allSelected = rows.length > 0 && selectedCount === rows.length;
@@ -129,6 +135,7 @@ export function QueueTable({ tab, onUseExtension }: QueueTableProps) {
             task={task}
             shown={shown}
             effectivePolicy={effectivePolicy(task, policy)}
+            effectiveWriteSubs={effectiveWriteSubs(task, globalWriteSubs)}
             waitingMs={budgetWaits[task.id] ?? null}
             onToggleSelected={(selected) => void setSelected(task.id, selected)}
             policyControl={<RowPolicySelect task={task} globalPolicy={policy} />}
@@ -162,14 +169,12 @@ export function QueueTable({ tab, onUseExtension }: QueueTableProps) {
                             : undefined
                       }
                       // A row hands a tool the folder it downloaded into.
-                      // 文件翻譯 takes a .txt/.md the user names and 貼文解說
-                      // takes a post URL, so both are offered from the header
-                      // and disabled here WITH THE REASON, rather than opened
-                      // on something they would refuse. Disabled and not
+                      // 貼文解說 takes a post URL, so it is offered from the
+                      // header and disabled here WITH THE REASON, rather than
+                      // opened on something it would refuse. Disabled and not
                       // hidden: a control that appears and disappears teaches
                       // nobody where it lives (D-80).
                       unavailable={{
-                        translatedoc: "文件翻譯要選一份 .txt／.md 文件，請從上方的「延伸工具」開啟",
                         brief: "貼文解說要貼一個貼文網址，請從上方的「延伸工具」開啟",
                       }}
                       onPick={(id) => onUseExtension(id, task.outputDir ?? undefined)}

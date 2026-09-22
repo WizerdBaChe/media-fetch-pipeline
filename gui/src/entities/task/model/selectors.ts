@@ -63,6 +63,13 @@ export function effectivePolicy(task: Task, globalPolicy: string): string {
   return task.policy ?? globalPolicy;
 }
 
+/** The effective 一併存字幕 for a row: its own override, else the global one.
+ *  Same three-state shape as `effectivePolicy` -- `task.writeSubs` is `null`
+ *  for "inherit", never a second way to spell the global value. */
+export function effectiveWriteSubs(task: Task, globalWriteSubs: boolean): boolean {
+  return task.writeSubs ?? globalWriteSubs;
+}
+
 export function aggregateBytesPerSec(tasks: Record<string, Task>): number {
   return allTasks(tasks)
     .filter((task) => task.state === "DOWNLOADING")

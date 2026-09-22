@@ -30,6 +30,21 @@ class ChromeConfig(CamelModel):
     visible: bool = False
 
 
+#: How a read-only lookup names its bucket: `lookup:youtube`, `lookup:bilibili`.
+#:
+#: A PREFIX rather than one shared `lookup` key, because the sliding window
+#: and the minimum gap are properties of a SERVER. One key for every platform
+#: would make a Bilibili question wait behind a YouTube one, which is pacing
+#: against nobody. What the prefix shares is the LIMITS, not the window.
+LOOKUP_PREFIX = "lookup:"
+
+
+def lookup_bucket(platform: str) -> str:
+    """The read-only bucket name for `platform`. One function, so the prefix
+    is never spelt at a call site and a rename cannot half-happen."""
+    return f"{LOOKUP_PREFIX}{platform}"
+
+
 class BudgetPlatformConfig(CamelModel):
     max_requests_per_hour: int
     max_requests_per_run: int
@@ -73,6 +88,31 @@ class BudgetConfig(CamelModel):
             cooldown_on_block_ms=300_000,
         )
     )
+    #: Read-only lookups -- 「what does this video have」 with nothing landing
+    #: on disk. User ruling 2026-09-09, after P-83 put these on the budget at
+    #: all: a question that downloads nothing should not spend the same hour
+    #: at the same cadence as a transfer.
+    #:
+    #: **The platform still sees one source**, and this bucket does not
+    #: pretend otherwise -- separating them is OUR bookkeeping, not a promise
+    #: about what the far end counts. So the numbers move by a factor of two,
+    #: not by an order of magnitude: twice the hourly room, half the minimum
+    #: gap. The cooldown is left at the default because nothing has measured
+    #: how long a refusal lasts, and inventing that number is the tuning this
+    #: project keeps deciding not to do on one data point.
+    #:
+    #: review-when: the empty-list condition of P-84 becomes reproducible and
+    #: is shown to depend on request rate -- this bucket is then the first
+    #: thing to tighten, and the comment above is why it was loosened.
+    lookup: BudgetPlatformConfig = Field(
+        default_factory=lambda: BudgetPlatformConfig(
+            max_requests_per_hour=600,
+            max_requests_per_run=200,
+            min_interval_ms=500,
+            jitter_ms=250,
+            cooldown_on_block_ms=300_000,
+        )
+    )
 
     def for_platform(self, platform: str) -> BudgetPlatformConfig:
         """Look up the budget config for `platform`, falling back to the
@@ -92,6 +132,8 @@ class BudgetConfig(CamelModel):
         warning in production for a lookup that was going to fall through to
         `default` anyway.
         """
+        if platform.startswith(LOOKUP_PREFIX):
+            return self.lookup
         if platform in type(self).model_fields:
             bucket = getattr(self, platform)
             if isinstance(bucket, BudgetPlatformConfig):
@@ -121,78 +163,6 @@ class GuidesConfig(CamelModel):
     """
 
     seen: list[str] = Field(default_factory=list)
-
-
-class AsrConfig(CamelModel):
-    """Speech recognition, which lives OUTSIDE this process (see `mfp.asr`).
-
-    Every field here describes a tool this product does not ship. That is
-    the point: the engine is ~400 MB of Python and a ~3 GB model against a
-    ~107 MB installer, so it is discovered the way yt-dlp and ffmpeg are
-    rather than bundled. An empty `python` is the normal state on a machine
-    that has never transcribed audio, and `doctor` says so plainly.
-    """
-
-    #: The interpreter that can `import faster_whisper`. NOT this process's
-    #: own: in a packaged build `sys.executable` is `mfp.exe`, which cannot
-    #: import anything.
-    python: str | None = None
-    #: The MODEL HOME: one directory, holding one folder per model.
-    #:
-    #: `None` no longer means "let the engine decide". It means "use the
-    #: default for how this copy was installed" -- beside the program for an
-    #: installed build, under the output root for a portable one (user
-    #: ruling 2026-08-28, `asr_models.default_model_home`). The old
-    #: behaviour handed the question to faster-whisper's Hugging Face cache,
-    #: which put 3 GB somewhere nobody had named and gave the settings panel
-    #: nothing it could show.
-    model_dir: str | None = None
-    #: Which model in that home to use. A NAME, matched leniently against
-    #: the folders that are actually there (`large-v3` finds
-    #: `faster-whisper-large-v3`), and used as a download instruction only
-    #: when no local folder answers to it.
-    model: str = "large-v3"
-    #: `auto` prefers CUDA and falls back to CPU. Transcribing slowly is a
-    #: different outcome from not transcribing.
-    device: Literal["auto", "cuda", "cpu"] = "auto"
-    #: `auto` means float16 on CUDA, int8 on CPU. int8 on CUDA is NOT the
-    #: default even though it is faster: it fails with
-    #: CUBLAS_STATUS_NOT_SUPPORTED on RTX 50-series (sm_120).
-    compute_type: str = "auto"
-    #: `trad` asks Whisper for Traditional Chinese when the audio is
-    #: Chinese; it writes Simplified otherwise. Measured 2026-08-27, not
-    #: assumed -- the lever is a prompt, and a prompt is a hint.
-    script: Literal["trad", "none"] = "trad"
-    #: What to do to the sound BEFORE recognising it.
-    #:
-    #: `none` is the default and the recommendation, and that is a measured
-    #: position rather than a conservative one: on the recording that made
-    #: this setting exist, doing nothing and letting the retry ladder turn
-    #: the voice-activity filter off produced 158 segments, while evening out
-    #: the levels produced 125 and cost a whole extra stage (D-113).
-    #:
-    #: `level` is for a lopsided recording -- a call where one side is much
-    #: quieter -- and `denoise` is for a loud speaker in a noisy room. The
-    #: second one is measurably useless on the first one's audio, which the
-    #: GUI says out loud rather than leaving the reader to find out.
-    audio: Literal["none", "level", "denoise"] = "none"
-    #: Which model in the same home translates a finished transcript.
-    #:
-    #: A SEPARATE field from `model`, not a mode of it, because the two are
-    #: different kinds of model and the two capabilities are independently
-    #: available: a machine can transcribe and not translate, or the other
-    #: way round, and one setting could not say so. `None` is the normal
-    #: state -- translation is opt-in and nothing downloads it.
-    translation_model: str | None = None
-    #: Default target language for translation, FLORES-200 style. Named
-    #: rather than detected: what to translate INTO is a decision, and a
-    #: tool that guessed it would be guessing at the one thing the user
-    #: opened the feature to say.
-    translation_target: str = "zho_Hant"
-    #: Permit the engine to fetch model weights it does not have. Off by
-    #: default because a silent 3 GB download is indistinguishable from a
-    #: hang.
-    allow_download: bool = False
 
 
 class ServeConfig(CamelModel):
@@ -236,6 +206,17 @@ class AppConfig(CamelModel):
     # O-2 ruled 2026-08-12 (PSM Batch 2 §9).
     output_root: str = "D:/output/MediaGrabbed"
     policy: str = "best"
+    #: Save the platform's own caption track beside the media, in the language
+    #: the video was SPOKEN in (`captions.ORIGINAL_LANG`). The global default
+    #: behind every queue row, overridable per row exactly as `policy` is.
+    #:
+    #: Off by default, matching `mfp fetch`: a caption track is a second file
+    #: in the user's folder and a second thing to explain, so it is asked for.
+    #: There is no language setting beside it on purpose -- naming a language
+    #: asks the platform to TRANSLATE, which D-156/P-49 says has to be a
+    #: deliberate per-run argument and never a stored default somebody set
+    #: once and forgot.
+    write_subs: bool = False
     # --- §9's settings table ------------------------------------------------
     #
     # Only the rows something actually READS live here. 下載完成後 and
@@ -268,8 +249,18 @@ class AppConfig(CamelModel):
     binaries: BinariesConfig = Field(default_factory=BinariesConfig)
     serve: ServeConfig = Field(default_factory=ServeConfig)
     brief: BriefConfig = Field(default_factory=BriefConfig)
-    asr: AsrConfig = Field(default_factory=AsrConfig)
     guides: GuidesConfig = Field(default_factory=GuidesConfig)
+
+
+#: Top-level `AppConfig` keys retired along with the transcript family.
+#: `load_config` drops these from the parsed dict BEFORE validation, because
+#: `AppConfig` forbids extra fields and a `ValidationError` on ANY field
+#: rebuilds the WHOLE config from defaults -- an old config.json still
+#: carrying `asr` would otherwise silently wipe outputRoot, policy and every
+#: other setting on the next load. An explicit tuple only, never a generic
+#: strip of unknown keys: that would hide a real typo in the user's file as
+#: a bad-key drop instead of surfacing it as a validation error.
+_RETIRED_KEYS = ("asr",)
 
 
 def app_data_dir() -> Path:
@@ -326,6 +317,9 @@ def load_config(path: Path | None = None) -> AppConfig:
             # setting they had just changed, with no error to explain it.
             raw = p.read_text(encoding="utf-8-sig")
             data = json.loads(raw)
+            if isinstance(data, dict):
+                for key in _RETIRED_KEYS:
+                    data.pop(key, None)
             cfg = AppConfig.model_validate(data)
             _announce_binaries(cfg)
             return cfg

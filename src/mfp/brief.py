@@ -37,10 +37,10 @@ seam is "does this step need a model", and neither of these does):
    text with no label near it. The file's first line is the label.
 
 5. **A video can be transferred on request** (`--with-video`). Not so anything
-   here can watch it: nothing here can. It is so the caller can run
-   `mfp transcript` over it, which is the only path this product has to what
-   was SAID in a post -- and `fetch` cannot supply the file, because `fetch`
-   writes into the download tree by definition (`INV-P1`).
+   here can watch it: nothing here can, and this product has no path to what
+   was SAID in a post -- it exists so the caller has the file, because
+   `fetch` cannot supply it, since `fetch` writes into the download tree by
+   definition (`INV-P1`).
 """
 
 from __future__ import annotations
@@ -49,6 +49,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from mfp.errors import MfpError
 from mfp.models import (
@@ -61,7 +62,11 @@ from mfp.models import (
     BriefVideo,
     FetchResultBudget,
     Manifest,
+    ManifestSource,
 )
+
+if TYPE_CHECKING:
+    from mfp.adapters.base import FetchContext
 
 #: `_analysis.content.md` / `_analysis.visual.md`, beside the media.
 ANALYSIS_STEM = "_analysis"
@@ -375,6 +380,98 @@ def post_text_path(post_dir: Path | str) -> Path:
     return Path(post_dir) / POST_TEXT_NAME
 
 
+def _humanize_gap(seconds: int) -> str:
+    """`6932` -> `1 hour 55 minutes`. The reader's own unit, not the wire's.
+
+    `ThreadSegment.gap_seconds` stays an int because that is a machine field.
+    This is the only place it is spelled out, and it is spelled out because
+    the reader's NEXT decision is exactly the one `mfp` refuses to make --
+    "is this still the same piece of writing, or an afterthought two hours
+    later" -- and the gap is the only evidence they have for it
+    (`ThreadSegment`'s own docstring; D-146's seam).
+
+    Two units at most. `taken_at` has one-second resolution, so a gap of 0 is
+    the same second rather than "less than a second"; saying which one is
+    measured matters more here than reading smoothly.
+    """
+    if seconds <= 0:
+        return "in the same second"
+    if seconds < 60:
+        return f"{seconds} second{'' if seconds == 1 else 's'} later"
+    if seconds < 3600:
+        minutes, rest = divmod(seconds, 60)
+        head = f"{minutes} minute{'' if minutes == 1 else 's'}"
+        tail = f" {rest} second{'' if rest == 1 else 's'}" if rest else ""
+        return f"{head}{tail} later"
+    hours, rest = divmod(seconds, 3600)
+    minutes = rest // 60
+    head = f"{hours} hour{'' if hours == 1 else 's'}"
+    tail = f" {minutes} minute{'' if minutes == 1 else 's'}" if minutes else ""
+    return f"{head}{tail} later"
+
+
+def _continuation_lines(source: ManifestSource) -> list[str]:
+    """The `continuation` section of `_post.txt`, or `[]` for an ordinary post.
+
+    Two rulings are frozen in here, both from the 2026-09-11 walkthrough
+    (`docs/UX_WALKTHROUGH_2026-09-11.md`):
+
+    * **The reply counts are printed, and printed as the two measurements
+      they are.** A chain assembled from one page of replies can be missing
+      parts, and a reader given only the parts has no way to know -- silence
+      is not neutral, and that is the same shape as P-88, where an incomplete
+      answer was presented as a complete one.
+    * **What is printed is the count, never a conclusion drawn from it.**
+      `direct_reply_count` counts EVERYONE's replies, so a shortfall says
+      nothing about whether the author's own chain is short: most of the
+      missing 13 on the measured page are other people's comments. "Your
+      continuation may be incomplete" would be a cause the program did not
+      determine (D-155). The reader is handed the two numbers and draws
+      their own line.
+    """
+    segments = source.segments
+    if len(segments) < 2:
+        return []
+
+    total = len(segments)
+    lines = [
+        "",
+        "------------------------------ continuation -------------------------------",
+        "",
+        f"The caption above is part 1 of {total}. The author continued the post "
+        "in replies to",
+        "their own post; the rest follow below, in the order posted. Only the "
+        "author's own",
+        "replies are collected -- other people's are not.",
+    ]
+
+    stated, seen = source.replies_stated, source.replies_seen
+    if stated is not None and seen is not None:
+        lines.append("")
+        lines.append(
+            f"Replies on this post: {stated} stated by the platform, {seen} present "
+            "on the page."
+        )
+        if seen < stated:
+            lines.append(
+                f"Anything in the other {stated - seen} is not in this file."
+            )
+
+    for segment in segments[1:]:
+        gap = (
+            _humanize_gap(segment.gap_seconds)
+            if segment.gap_seconds is not None
+            else "gap unknown"
+        )
+        lines += [
+            "",
+            f"[part {segment.index + 1} of {total}] {gap}",
+            "",
+            (segment.text or "").strip() or "(no text)",
+        ]
+    return lines
+
+
 def render_post_text(manifest: Manifest) -> str | None:
     """`_post.txt`'s content, or None when the post carried no text at all.
 
@@ -384,11 +481,13 @@ def render_post_text(manifest: Manifest) -> str | None:
     """
     source = manifest.source
     alt = [
-        (item.index, item.alt_text)
+        (item.index, item.segment_index, item.alt_text)
         for item in manifest.items
         if (item.alt_text or "").strip()
     ]
-    if not (source.caption or "").strip() and not alt:
+    continuation = _continuation_lines(source)
+    links = list(source.links)
+    if not (source.caption or "").strip() and not alt and not continuation and not links:
         return None
 
     lines = [
@@ -402,13 +501,35 @@ def render_post_text(manifest: Manifest) -> str | None:
         "",
         (source.caption or "").strip() or "(none)",
     ]
+    lines += continuation
+    if links:
+        # The targets, unwrapped from the platform's click-through shim. A
+        # preview card shows only a title and a domain, so without this list
+        # the one thing a link post is FOR -- where it points -- is missing.
+        lines += [
+            "",
+            "---------------------------------- links ----------------------------------",
+            "",
+            "Links the author put in the post"
+            + (" and its continuation" if continuation else "")
+            + ", in order:",
+            "",
+        ]
+        lines += [f"- {link}" for link in links]
     if alt:
         lines += [
             "",
             "-------------------------------- alt text ---------------------------------",
             "",
         ]
-        lines += [f"[{index}] {(text or '').strip()}" for index, text in alt]
+        # The part number rides along only when there IS more than one part.
+        # Items from a continuation join `manifest.items` in one flat list, so
+        # without it `[3]` reads as the third picture of the post the URL
+        # names -- which is the misattribution P-88 was about, one surface
+        # over.
+        for index, segment_index, text in alt:
+            part = f" (part {segment_index + 1})" if continuation else ""
+            lines.append(f"[{index}]{part} {(text or '').strip()}")
     return "\n".join(lines) + "\n"
 
 
@@ -539,8 +660,12 @@ def untrusted_block(
     the file holding the same words belongs in here too: a door into this room
     that does not pass the word `untrusted` is the mechanism failing.
     """
+    segments = manifest.source.segments
     return BriefUntrusted(
         caption=manifest.source.caption,
+        # Parts 2..n only: part 1 IS the caption, and repeating it would make
+        # a reader who concatenates the two say it twice.
+        continuation=[segment.text or "" for segment in segments[1:]],
         alt_text={str(item.index): item.alt_text for item in manifest.items},
         text_path=str(text_path) if text_path is not None else None,
     )
@@ -716,6 +841,10 @@ def reusable_post(
     if post_id is not None and manifest.source.id != post_id:
         return None
 
+    if not manifest.items:
+        # A text-only post (2026-09-22): its manifest is all there was to
+        # fetch, so the manifest being on disk IS the post being complete.
+        return manifest
     kinds = ("image", "video") if with_video else ("image",)
     wanted = [item for item in manifest.items if item.kind in kinds]
     if not wanted:
@@ -753,14 +882,14 @@ def fetch_package(
     uses to install its SIGINT handler; the server has no use for one.
 
     **`with_video` is acquisition, and acquisition is this half's job.** The
-    caller cannot look at a video and never will -- what it can do is run
-    `mfp transcript` over one, and it cannot do even that unless the file is
-    on disk in a folder it is allowed to write beside. `fetch` cannot supply
-    it: `fetch` writes into the DOWNLOAD tree by definition (`INV-P1`), and a
-    video that only exists because an analysis wanted it is analysis output
-    (D-143, the same argument that put the pictures here). So the one place
-    this can happen is here, and it stays off by default because a video is
-    the expensive item in every post that has one.
+    caller cannot look at a video and never will, and this product does no
+    speech recognition either -- what it can do is put the file on disk, in a
+    folder it is allowed to write beside. `fetch` cannot supply it: `fetch`
+    writes into the DOWNLOAD tree by definition (`INV-P1`), and a video that
+    only exists because an analysis wanted it is analysis output (D-143, the
+    same argument that put the pictures here). So the one place this can
+    happen is here, and it stays off by default because a video is the
+    expensive item in every post that has one.
     """
     from urllib.parse import parse_qsl, urlsplit
 
@@ -831,16 +960,25 @@ def fetch_package(
     # the opposite of what "video is out of scope" should cost.
     wanted_kinds = ("image", "video") if with_video else ("image",)
     probed_now = [o for o in batch.outcomes if o.ok and o.manifest is not None]
-    if probed_now:
+    # A text-only post: the probe answered `no_media_in_post` -- true, nothing
+    # to download -- and read the post anyway. For `brief` the words ARE the
+    # post, so it is explained from that manifest with no transfer at all.
+    # Before 2026-09-22 this was "nothing to explain" for every such post.
+    text_only = next(
+        (o.text_manifest for o in batch.outcomes if o.text_manifest is not None),
+        None,
+    )
+    if probed_now or text_only is not None:
+        probed_manifest = probed_now[0].manifest if probed_now else text_only
         selected = [
             item.index
-            for item in probed_now[0].manifest.items
+            for item in probed_manifest.items
             if item.kind in wanted_kinds
         ]
-        if len(selected) != len(probed_now[0].manifest.items):
+        if len(selected) != len(probed_manifest.items):
             ctx.select = selected
             say(
-                f"{len(probed_now[0].manifest.items) - len(selected)} item(s) "
+                f"{len(probed_manifest.items) - len(selected)} item(s) "
                 "will be reported but not downloaded"
             )
 
@@ -848,7 +986,7 @@ def fetch_package(
         # because the probe supplies the author that makes the folder name
         # readable -- and before the transfer, because a byte written into the
         # download tree cannot be told apart from a manual download afterwards.
-        probed_source = probed_now[0].manifest.source
+        probed_source = probed_manifest.source
         ctx.post_dir = runs.open_run(
             out_root,
             url,
@@ -860,6 +998,12 @@ def fetch_package(
                 probed_source.platform or platform, probed_source.id
             ),
         ).root
+
+    if text_only is not None and not probed_now:
+        return _text_only_package(
+            text_only, lane=lane, post_dir=Path(ctx.post_dir), ctx=ctx,
+            platform=text_only.source.platform or platform, with_video=with_video,
+        )
 
     restore = prepare_context(ctx) if prepare_context is not None else None
     try:
@@ -874,11 +1018,20 @@ def fetch_package(
 
     probed = [o for o in batch.outcomes if o.ok and o.manifest is not None]
     if not probed:
-        # The probe's own error already propagated as an exception in every
-        # case that has one; reaching here means the batch stopped.
+        # Name the probe's own verdict. `probe_urls` records a failure on the
+        # outcome instead of raising it, so without this the reader got "no
+        # manifest" and had to guess why (D-155's shape: a message may not
+        # hide the cause the program DID determine).
+        failed = next((o for o in batch.outcomes if o.error_code), None)
+        cause = (
+            f" [{failed.error_code}] {failed.error_detail or ''}".rstrip()
+            if failed is not None
+            else ""
+        )
         raise MfpError(
             f"nothing to explain: the probe of {url} produced no manifest"
-            + (f" ({batch.stop_reason})" if batch.stop_reason else ""),
+            + (f" ({batch.stop_reason})" if batch.stop_reason else "")
+            + cause,
             url=url,
         )
     manifest = probed[0].manifest
@@ -899,7 +1052,11 @@ def fetch_package(
             f"nothing to explain: no analysis run was opened for {url}", url=url
         )
     post_dir = Path(post_dir)
-    if landed and not (post_dir / manifest_filename()).exists():
+    # Written even when nothing landed (a video-only post without
+    # `--with-video`, 2026-09-23): the package reports this `postDir`, and
+    # `brief-save` refuses a folder without a manifest. Reuse is unaffected
+    # -- `reusable_post` still checks the wanted items against the disk.
+    if not (post_dir / manifest_filename()).exists():
         (post_dir / manifest_filename()).write_text(
             manifest.model_dump_json(by_alias=True, indent=2), encoding="utf-8"
         )
@@ -907,6 +1064,38 @@ def fetch_package(
     return build_package(
         manifest, lane=lane, post_dir=post_dir, files=landed,
         budget=result.budget, reused=False,
+        degraded_reason=manifest.degraded_reason,
+        with_video=with_video,
+    )
+
+
+def _text_only_package(
+    manifest: Manifest,
+    *,
+    lane: str,
+    post_dir: Path,
+    ctx: FetchContext,
+    platform: str,
+    with_video: bool,
+) -> BriefPackage:
+    """The package for a post that is words only: no transfer, empty media.
+
+    `manifest.json` is written here, where the media path writes it only once
+    a file has landed, because for this post the manifest is everything that
+    was fetched -- and it is what lets the next `brief` reuse the run instead
+    of spending another platform request (`reusable_post`).
+    """
+    from mfp.naming import manifest_filename
+    from mfp.pipeline import _budget_row
+
+    target = post_dir / manifest_filename()
+    if not target.exists():
+        target.write_text(
+            manifest.model_dump_json(by_alias=True, indent=2), encoding="utf-8"
+        )
+    return build_package(
+        manifest, lane=lane, post_dir=post_dir, files={},
+        budget=_budget_row(ctx.budget, platform), reused=False,
         degraded_reason=manifest.degraded_reason,
         with_video=with_video,
     )

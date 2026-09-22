@@ -26,7 +26,8 @@
   /* Where a settings row's NAME column ends, for every category of 設定.
 
      A token because it was four numbers: `.mfp-settings__row` said 10rem and
-     語音辨識與翻譯 -- the one category built as a status readout rather than a
+     語音辨識與翻譯 (the transcript family's settings category, removed
+     2026-09-16) -- the one category built as a status readout rather than a
      form -- grew its own blocks, each picking a label width by eye (7.5rem
      twice, 10rem once). Switching to it moved every label 40px left, which is
      half of what the 2026-08-31 report calls 「畫面跳動」. There was nothing to
@@ -126,7 +127,8 @@ input[type="checkbox"] {
   /* The gutter is reserved whether or not this is scrolling, so switching
      category cannot move the page sideways.
 
-     語音辨識與翻譯 is the only category tall enough to scroll -- measured
+     語音辨識與翻譯 (the transcript family's settings category, removed
+     2026-09-16) was the only category tall enough to scroll -- measured
      2026-08-31 at 1233px against a 729px viewport, every other category 729
      exactly -- so selecting it made a scrollbar appear, took 15px off the
      content box, and re-centred `__body`'s `margin: 0 auto` 7.5px to the left.
@@ -230,6 +232,34 @@ input[type="checkbox"] {
 .mfp-add__input:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
+}
+
+/* The per-paste 一併存字幕 tick.
+
+   `align-items: center` because the row is `stretch`: without it the box and
+   its word sit at the top of a taller field instead of level with it.
+   `flex: none` + `white-space: nowrap` because the paste box is the only
+   thing in this row that may shrink -- a label that wraps to two lines makes
+   the header taller for a five-character word. */
+.mfp-add__subs {
+  display: flex;
+  flex: none;
+  gap: 5px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* The Z11 guard above sets `align-self: start` on every checkbox, which is
+   right where the label wraps to several lines and wrong here: this label is
+   a flex item in a `stretch` row, so it is as tall as the paste box, and a
+   13px glyph pinned to the top of 34px floats a line above its own word --
+   the very shape that rule exists to catch. */
+.mfp-add__subs input[type="checkbox"] {
+  align-self: center;
+  margin: 0;
 }
 
 /* A floating hint, not a reserved line.
@@ -860,6 +890,17 @@ input[type="checkbox"] {
   color: var(--danger);
 }
 
+/* What the recovery button will cost, under the label rather than beside it:
+   the 狀態 column is the narrowest one that carries prose, and a second
+   clause on the same line would push 進度 across the row (F6). Muted, because
+   it is a condition on an action rather than a second failure. */
+.mfp-row__cost {
+  color: var(--ink-muted);
+  display: block;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 /* The success twin of `mfp-row__error`. Same size and position, so a
    confirmation and a refusal appear in the same place and the eye does not
    have to hunt for which one it got. */
@@ -1192,18 +1233,6 @@ input[type="checkbox"] {
   background: var(--card-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-}
-
-/* Wide enough to edit a table in. The default width is sized for a
-   sentence and two buttons; the glossary editor is three inputs per row and
-   would wrap every one of them. */
-.mfp-modal--wide {
-  width: min(760px, 94vw);
-}
-
-.mfp-modal--wide .mfp-modal__body {
-  max-height: 65vh;
-  overflow-y: auto;
 }
 
 .mfp-modal__title {
@@ -1600,6 +1629,15 @@ input[type="checkbox"] {
   font-style: normal;
 }
 
+/* Why this one tool cannot be used here, on its own line under the tool's
+   description rather than only in a `title` nobody but a mouse can reach
+   (F6). Warn-coloured, because it is the reason the row is grey. */
+.mfp-ext__menu em .mfp-ext__why {
+  color: var(--warn);
+  display: block;
+  margin-top: 2px;
+}
+
 /* --- workspace ---------------------------------------------------------- */
 
 .mfp-stack {
@@ -1771,8 +1809,11 @@ input[type="checkbox"] {
   gap: 10px;
 }
 
-/* --- 延伸工具：逐字稿 --------------------------------------------------- */
+/* --- shared workspace head/hint/error (used by 貼文解說) ---------------- */
 
+/* The `tx` prefix is 逐字稿's, the workspace these rules were written for.
+   That workspace was removed 2026-09-16 (D-162); 貼文解說 already shared this
+   class, so the rules stayed rather than being copied under a new name. */
 .mfp-tx__head {
   align-items: baseline;
   display: flex;
@@ -1785,30 +1826,9 @@ input[type="checkbox"] {
   margin: 0;
 }
 
-.mfp-tx__title {
-  color: var(--ink-muted);
-  font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mfp-tx__lang,
-.mfp-tx__actions {
-  align-items: flex-end;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 8px;
-}
-
-.mfp-tx__tracks,
 .mfp-tx__hint {
   color: var(--ink-muted);
   font-size: 12px;
-}
-
-.mfp-tx__hint {
   margin: 0 0 8px;
 }
 
@@ -1816,125 +1836,6 @@ input[type="checkbox"] {
   color: var(--danger);
   font-size: 12px;
   margin: 8px 0 0;
-}
-
-/* Recognition progress. Sized and spaced exactly like the error line above
-   so the panel does not resize when one replaces the other -- they occupy
-   the same row of the layout and never appear together. */
-.mfp-tx__progress {
-  color: var(--accent);
-  font-size: 12px;
-  margin: 8px 0 0;
-  font-variant-numeric: tabular-nums;
-}
-
-/* The engine's verdict on a finished transcript. Warm rather than red: the
-   transcript is usable and one passage of it is suspect, which is a
-   different message from "this failed". It sits with the transcript rather
-   than in the progress row, because it outlives the wait. */
-.mfp-tx__health {
-  background: var(--warn-bg);
-  border-left: 3px solid var(--warn);
-  border-radius: 0 4px 4px 0;
-  color: var(--warn);
-  font-size: 12px;
-  line-height: 1.6;
-  list-style: none;
-  margin: 8px 0 0;
-  padding: 8px 10px;
-}
-
-/* One row per verdict. `note` is dimmed rather than differently coloured:
-   the two are the same KIND of message and only differ in how much they ask
-   of the reader, and a second colour would read as a second category. */
-.mfp-tx__health li + li {
-  margin-top: 4px;
-}
-
-.mfp-tx__health li[data-severity="note"] {
-  opacity: 0.78;
-}
-
-.mfp-tx__reveal {
-  background: none;
-  border: 0;
-  color: var(--accent);
-  cursor: pointer;
-  font: inherit;
-  font-size: 12px;
-  padding: 0 0 0 6px;
-  text-decoration: underline;
-}
-
-/* Capped and scrolled: a transcript runs to hundreds of lines, and a list
-   that pushes the footer off the page takes the 用這段做引用長圖 button --
-   the thing the reader came for -- with it. */
-.mfp-tx__lines {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  list-style: none;
-  margin: 0;
-  max-height: 52vh;
-  overflow-y: auto;
-  padding: 2px;
-}
-
-.mfp-tx__line {
-  background: none;
-  border: 0;
-  border-radius: var(--radius);
-  cursor: pointer;
-  display: flex;
-  font: inherit;
-  gap: 10px;
-  padding: 3px 6px;
-  text-align: start;
-  width: 100%;
-}
-
-.mfp-tx__line:hover {
-  background: var(--accent-light);
-}
-
-.mfp-tx__line[data-selected="true"] {
-  background: var(--accent-light);
-  box-shadow: inset 2px 0 0 var(--accent);
-}
-
-.mfp-tx__at {
-  color: var(--ink-faint);
-  flex: 0 0 auto;
-  font-size: 11.5px;
-  /* Fixed, so the words start on one x down the whole list rather than
-     stepping right every time a timestamp gains a digit. */
-  min-width: 44px;
-  text-align: right;
-}
-
-.mfp-tx__text {
-  flex: 1;
-  font-size: 13px;
-}
-
-.mfp-tx__footer {
-  align-items: center;
-  background: linear-gradient(to bottom, transparent, var(--surface) 12px);
-  bottom: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  padding-top: 12px;
-  position: sticky;
-}
-
-.mfp-tx__window {
-  color: var(--ink-muted);
-  font-size: 12px;
-}
-
-.mfp-tx__warn {
-  color: var(--warn);
-  font-size: 12px;
 }
 
 .mfp-stack__run {
@@ -2120,736 +2021,6 @@ input[type="checkbox"] {
   margin: 6px 0 0;
 }
 
-/* ==========================================================================
-   語音辨識的準備 (speech-recognition setup)
-
-   The rule this section is built on: the verdict is the only thing sized to
-   be read from across the room, and everything mechanical -- paths, format
-   versions, spec names -- is muted, small, or behind a <details>. Removing
-   those would make the panel useless the moment something went wrong; what
-   was wrong before was leading with them.
-   ========================================================================== */
-
-/* One band per kind of question. The heading is what tells a reader that the
-   green line below and the orange line above are about different KINDS of
-   thing -- without it the two share a vocabulary and read as a contradiction
-   (docs/asr-readiness-view-model.md §3). */
-.mfp-asr__band {
-  margin: 18px 0 0;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
-
-.mfp-asr__band:first-of-type {
-  border-top: 0;
-  padding-top: 0;
-}
-
-.mfp-asr__band-head {
-  margin: 0 0 8px;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-/* Three tones, never two. `off` is an offer nobody took up and must not
-   share a colour with `blocked`, which is something that is wrong. */
-.mfp-asr__verdict {
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--warn);
-  background: var(--warn-bg);
-  border-radius: var(--radius);
-  padding: 10px 14px;
-  margin: 10px 0;
-}
-
-.mfp-asr__verdict[data-tone="ready"] {
-  border-left-color: var(--ok);
-  background: var(--ok-bg);
-}
-
-.mfp-asr__verdict[data-tone="off"] {
-  border-left-color: var(--border);
-  background: var(--surface-2);
-}
-
-.mfp-asr__verdict strong {
-  display: block;
-  font-size: 15px;
-}
-
-.mfp-asr__verdict p {
-  margin: 4px 0 0;
-}
-
-
-.mfp-asr__steps {
-  list-style: none;
-  margin: 10px 0 0;
-  padding: 0;
-  display: grid;
-  gap: 6px;
-}
-
-.mfp-asr__steps li {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-/* The things a person has to HAVE. One grid so the rows' names, states and
-   buttons line up -- they are the same kind of thing and reading them as a
-   set is the point. */
-/* The label column comes from `--settings-label`, the same track every other
-   category's rows use. It was 7.5rem, sized by eye for the LONGEST name
-   (「錄音的聲音狀況」, seven characters) -- which fits inside 10rem too, so the
-   only thing the local number bought was 語音辨識與翻譯's labels starting 40px
-   left of every other category's. The rest of this row is its own: a status
-   line is name / state / two buttons, and that is not a form row. */
-.mfp-asr__part {
-  display: grid;
-  grid-template-columns: var(--settings-label) minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 6px 10px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.mfp-asr__part small,
-.mfp-asr__part-path,
-.mfp-asr__part-problem {
-  grid-column: 2 / -1;
-}
-
-/* The engine's own path, beside the engine's own verdict. It used to live in
-   技術細節 three bands away, which is how 「尚未設定」 and a real interpreter
-   path came to sit on one screen (C1). */
-.mfp-asr__part-path {
-  font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--ink-muted);
-}
-
-.mfp-asr__part-problem {
-  font-size: 12px;
-  color: var(--warn);
-}
-
-/* The download list. One row per model, and the SIZE gets its own column so
-   it can be read down the list — choosing between 3 GB and 0.5 GB is the
-   whole decision, and a size buried in prose cannot be compared. */
-.mfp-asr__catalogue {
-  padding: 6px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.mfp-asr__catalogue-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.mfp-asr__catalogue-row {
-  display: grid;
-  grid-template-columns: minmax(7rem, auto) minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 4px 10px;
-  padding: 4px 0;
-}
-
-.mfp-asr__catalogue-row[data-kind="translation"] {
-  border-top: 1px dashed var(--border);
-  margin-top: 4px;
-  padding-top: 8px;
-}
-
-.mfp-asr__catalogue-name {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
-
-.mfp-asr__catalogue-row .mfp-asr__progress {
-  grid-column: 2 / -1;
-}
-
-.mfp-asr__pick {
-  font-style: normal;
-  font-size: 0.75rem;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: var(--ok-bg, var(--surface-2));
-  color: var(--ok-ink, var(--ink));
-}
-
-.mfp-asr__audio {
-  display: grid;
-  /* Same track as `.mfp-asr__part` above it and as every 設定 row elsewhere:
-     這一列 sits directly under those, and two label edges one row apart is
-     what made the panel read as a different page. */
-  grid-template-columns: var(--settings-label) minmax(0, 1fr);
-  align-items: center;
-  gap: 6px 10px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.mfp-asr__audio small {
-  grid-column: 2 / -1;
-}
-
-.mfp-asr__part-name {
-  color: var(--ink-muted);
-}
-
-/* COMPONENT presence: is this thing here. Plain text with a leading mark,
-   deliberately NOT the pill the capability table uses -- these two used to
-   share `.mfp-asr__part-state[data-ok]`, so one visual symbol carried both
-   「這個東西在不在」 and 「你能不能做這件事」, and a reader had no way to tell
-   which of the two a given green or orange word meant.
-
-   The glyph is the redundancy: colour alone fails in greyscale and for the
-   ~8% of men with a red/green deficiency. */
-.mfp-asr__part-state::before {
-  margin-right: 5px;
-}
-
-.mfp-asr__part-state[data-tone="ready"] {
-  color: var(--ok-ink);
-}
-
-.mfp-asr__part-state[data-tone="ready"]::before {
-  content: "●";
-}
-
-.mfp-asr__part-state[data-tone="blocked"] {
-  color: var(--warn);
-}
-
-.mfp-asr__part-state[data-tone="blocked"]::before {
-  content: "▲";
-}
-
-.mfp-asr__part-state[data-tone="off"] {
-  color: var(--ink-muted);
-}
-
-.mfp-asr__part-state[data-tone="off"]::before {
-  content: "○";
-}
-
-/* CAPABILITY verdict: can you do this. A pill, so it never reads as the same
-   kind of statement as the component line above. */
-.mfp-asr__cap-state {
-  display: inline-block;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 2px 10px;
-  border-radius: 999px;
-  border: 1px solid;
-  white-space: nowrap;
-}
-
-.mfp-asr__cap-state[data-tone="ready"] {
-  color: var(--ok-ink);
-  border-color: var(--ok);
-  background: var(--ok-bg);
-}
-
-.mfp-asr__cap-state[data-tone="blocked"] {
-  color: var(--warn);
-  border-color: var(--warn);
-  background: var(--warn-bg);
-}
-
-/* An opt-in nobody took up. Muted on purpose: it is not a fault, and the
-   version of this panel that painted it orange taught readers that orange
-   means nothing in particular. */
-.mfp-asr__cap-state[data-tone="off"] {
-  color: var(--ink-muted);
-  border-color: var(--border);
-  background: var(--surface-2);
-}
-
-.mfp-asr__home-path {
-  font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mfp-asr__muted {
-  color: var(--ink-muted);
-  font-size: 12px;
-}
-
-.mfp-asr__models {
-  list-style: none;
-  margin: 8px 0;
-  padding: 0;
-  display: grid;
-  gap: 4px;
-}
-
-/* Set when a step said 「從下面的清單挑一個」. The step used to render a
-   button that opened a browse-for-a-new-folder dialog instead (C7); this is
-   the outline that makes "down there" a place rather than an instruction. */
-.mfp-asr__models[data-pointed="true"] {
-  outline: 2px solid var(--accent);
-  outline-offset: 4px;
-  border-radius: var(--radius);
-}
-
-.mfp-asr__models li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  padding: 4px 0;
-}
-
-.mfp-asr__models li label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-/* An unusable entry is dimmed but never hidden: a folder that looks like a
-   model and is not is exactly the thing somebody needs to be told about. */
-.mfp-asr__models li[data-usable="false"] .mfp-asr__model-name {
-  color: var(--ink-muted);
-  text-decoration: line-through;
-}
-
-.mfp-asr__model-name {
-  font-family: var(--font-mono);
-}
-
-.mfp-asr__badge {
-  font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: var(--accent-light);
-  color: var(--accent);
-  white-space: nowrap;
-}
-
-.mfp-asr__badge--ok {
-  background: var(--ok-bg);
-  color: var(--ok-ink);
-}
-
-/* The two model KINDS get different colours, not just different words: with
-   both installed, "which of these is which" has to survive a glance. */
-.mfp-asr__badge[data-kind="recognition"] {
-  background: var(--accent-light);
-  color: var(--accent);
-}
-
-.mfp-asr__badge[data-kind="translation"] {
-  background: #e8eefd;
-  color: #2d4b9a;
-}
-
-.mfp-asr__badge[data-kind="unknown"],
-.mfp-asr__badge[data-kind="warn"] {
-  background: var(--warn-bg);
-  color: var(--warn);
-}
-
-/* The capability table: two rows, each answering "does this work, with
-   which model, and what is it waiting for". A table rather than two cards
-   because the comparison between the rows IS the information. */
-.mfp-asr__capabilities {
-  border-collapse: collapse;
-  width: 100%;
-  margin: 10px 0;
-}
-
-.mfp-asr__capabilities th,
-.mfp-asr__capabilities td {
-  text-align: left;
-  vertical-align: top;
-  padding: 8px;
-  border-bottom: 1px solid var(--border);
-}
-
-.mfp-asr__capabilities thead th {
-  font-size: 12px;
-  color: var(--ink-muted);
-  font-weight: 500;
-  padding-bottom: 4px;
-}
-
-.mfp-asr__capabilities tbody th,
-.mfp-asr__capabilities tbody td {
-  display: table-cell;
-}
-
-/* Each cell stacks its own value over its own explanation, so the eye can
-   read down one column or across one row and get a whole answer either way. */
-.mfp-asr__capabilities small,
-.mfp-asr__capabilities .mfp-asr__model-name {
-  display: block;
-}
-
-.mfp-asr__cap-label {
-  font-weight: 600;
-}
-
-.mfp-asr__capabilities tr[data-tone="ready"] {
-  background: color-mix(in srgb, var(--ok-bg) 35%, transparent);
-}
-
-/* A DIALOG since 2026-08-28. It keeps the accent border it had as an inline
-   block, because the border is what says 「這是剛剛那個動作的結果」 -- but the
-   card background comes from `.mfp-modal` so the two do not fight. Picking a
-   folder answered below the fold before this, and a reader who did not
-   scroll concluded the picker had done nothing. */
-.mfp-asr__scan {
-  border-color: var(--accent);
-  max-height: 78vh;
-  overflow-y: auto;
-}
-
-.mfp-asr__scan-picked {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin: 0 0 10px;
-  font-size: 12px;
-}
-
-.mfp-asr__scan-picked code {
-  overflow-wrap: anywhere;
-}
-
-.mfp-asr__scan-verdict {
-  margin: 0 0 6px;
-  font-weight: 600;
-}
-
-.mfp-asr__modes {
-  border: none;
-  margin: 8px 0;
-  padding: 0;
-}
-
-.mfp-asr__modes legend {
-  padding: 0;
-  font-weight: 600;
-}
-
-.mfp-asr__modes label {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 2px 8px;
-  padding: 5px 0;
-}
-
-.mfp-asr__modes label small {
-  grid-column: 2;
-}
-
-/* A mode the disk cannot do is shown, dimmed, with its reason. Hiding it
-   would leave the user wondering whether the option exists at all. */
-.mfp-asr__modes label[data-available="false"] {
-  color: var(--ink-muted);
-}
-
-.mfp-asr__warnings {
-  margin: 6px 0;
-  padding-left: 20px;
-  color: var(--warn);
-  font-size: 12px;
-}
-
-.mfp-asr__scan-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-top: 8px;
-}
-
-.mfp-asr__progress {
-  color: var(--accent);
-  font-size: 12px;
-}
-
-.mfp-asr__typed {
-  display: grid;
-  gap: 4px;
-  margin: 8px 0;
-  font-size: 12px;
-  color: var(--ink-muted);
-}
-
-.mfp-asr__disclosure {
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
-  margin-top: 10px;
-}
-
-.mfp-asr__disclosure summary {
-  cursor: pointer;
-  color: var(--ink-muted);
-}
-
-.mfp-asr__guide section {
-  margin: 14px 0;
-}
-
-.mfp-asr__guide h4 {
-  margin: 0 0 6px;
-}
-
-.mfp-asr__guide p {
-  margin: 6px 0;
-}
-
-.mfp-asr__table {
-  border-collapse: collapse;
-  width: 100%;
-  margin: 8px 0;
-  font-size: 12px;
-}
-
-.mfp-asr__table th,
-.mfp-asr__table td {
-  text-align: left;
-  vertical-align: top;
-  padding: 5px 8px;
-  border-bottom: 1px solid var(--border);
-}
-
-.mfp-asr__faq dt {
-  font-weight: 600;
-  margin-top: 8px;
-}
-
-.mfp-asr__faq dd {
-  margin: 2px 0 0 16px;
-  color: var(--ink-muted);
-}
-
-.mfp-asr__links {
-  margin: 6px 0;
-  padding-left: 20px;
-}
-
-.mfp-asr__copy {
-  display: grid;
-  grid-template-columns: 5rem minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 6px 8px;
-  margin: 6px 0;
-}
-
-.mfp-asr__copy code {
-  overflow-x: auto;
-  padding: 4px 6px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  white-space: nowrap;
-}
-
-.mfp-asr__copy small {
-  grid-column: 2 / -1;
-}
-
-.mfp-asr__copy-label {
-  color: var(--ink-muted);
-  font-size: 12px;
-}
-
-.mfp-asr__tech {
-  display: grid;
-  /* Already 10rem by hand; through the token now, so it stays whatever a
-     settings row's label column becomes. */
-  grid-template-columns: var(--settings-label) minmax(0, 1fr);
-  gap: 4px 10px;
-  font-size: 12px;
-  margin: 8px 0 0;
-}
-
-.mfp-asr__tech dt {
-  color: var(--ink-muted);
-}
-
-.mfp-asr__tech dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-/* The same card, inside 逐字稿. Toned as a notice rather than an error: it
-   is a setup step nobody has done, not a thing that broke. */
-.mfp-tx__setup {
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--warn);
-  background: var(--warn-bg);
-  border-radius: var(--radius);
-  padding: 10px 14px;
-  margin: 10px 0 0;
-}
-
-.mfp-tx__setup strong {
-  display: block;
-}
-
-.mfp-tx__setup p {
-  margin: 4px 0 0;
-}
-
-.mfp-tx__setup-why {
-  color: var(--ink-muted);
-  font-size: 12px;
-}
-
-.mfp-tx__setup button {
-  margin-top: 8px;
-}
-
-/* Translation, under the transcript it operates on. One row, because it is
-   one decision: which language, then go. */
-.mfp-tx__translate {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  padding: 8px 0;
-  border-top: 1px solid var(--border);
-  margin-top: 8px;
-}
-
-/* Term correction. Unlike translation this is NOT one row: the reader has to
-   review a list before anything happens, so the panel grows from a single
-   button into that list and back again. */
-.mfp-fix {
-  padding: 8px 0;
-  border-top: 1px solid var(--border);
-}
-
-.mfp-fix__row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.mfp-fix__summary {
-  margin: 0 0 6px;
-  font-size: 13px;
-}
-
-.mfp-fix__list {
-  list-style: none;
-  margin: 6px 0;
-  padding: 0;
-  max-height: 220px;
-  overflow-y: auto;
-}
-
-.mfp-fix__item {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  flex-wrap: wrap;
-  padding: 3px 4px;
-  border-radius: var(--radius);
-  cursor: pointer;
-}
-
-.mfp-fix__item:hover {
-  background: var(--accent-light);
-}
-
-/* A guess and a spelling the user enrolled are not the same claim, and the
-   list is unreviewable if they look alike. The guess carries the marker. */
-.mfp-fix__item[data-tier="phonetic"] {
-  border-left: 3px solid var(--warn, var(--border));
-  padding-left: 6px;
-}
-
-.mfp-fix__where {
-  font-size: 12px;
-  color: var(--ink-muted);
-  min-width: 5.5em;
-}
-
-/* The corrected sentence, with the change marked. What the reader is
-   judging is the sentence they would END UP with -- a before/after pair of
-   two nearly-identical Chinese sentences is unreadable at exactly the
-   moment it matters (user ruling 2026-08-28). */
-.mfp-fix__line {
-  flex: 1 1 18em;
-  line-height: 1.5;
-}
-
-/* `--ok-bg`, the way a diff marks an ADDITION. Not the accent, which is this
-   app's "you are here" colour and is too pale to find inside a sentence;
-   not `--warn-bg`, which would say something is wrong with the text being
-   proposed. Nothing marks the removal, because the removal is not shown. */
-.mfp-fix__mark {
-  padding: 1px 3px;
-  border-radius: 3px;
-  font-weight: 600;
-  color: var(--ok-ink);
-  background: var(--ok-bg);
-}
-
-.mfp-fix__was {
-  text-decoration: line-through;
-  color: var(--ink-muted);
-}
-
-.mfp-fix__now {
-  font-weight: 600;
-}
-
-.mfp-fix__arrow {
-  color: var(--ink-muted);
-}
-
-.mfp-fix__enrol {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin: 8px 0;
-  padding-top: 8px;
-  border-top: 1px dashed var(--border);
-}
-
-.mfp-fix__input {
-  padding: 3px 6px;
-  font: inherit;
-  font-size: 13px;
-  color: var(--ink);
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  min-width: 9em;
-  max-width: 14em;
-}
-
-.mfp-fix__files {
-  list-style: none;
-  margin: 6px 0;
-  padding: 0;
-  font-size: 12px;
-}
-
 /* --- one step back ------------------------------------------------------ */
 
 /* Above the content and below the notices, in one place for all three
@@ -2868,104 +2039,6 @@ input[type="checkbox"] {
 .mfp-back__hint {
   font-size: 12px;
   color: var(--ink-muted);
-}
-
-/* --- the glossary editor ------------------------------------------------ */
-
-/* One component, two homes: inline in 設定, and inside a dialog opened from
-   逐字稿. It must therefore lay out inside a settings section AND inside a
-   modal body, which is why nothing here sets its own width. */
-.mfp-gloss {
-  font-size: 13px;
-}
-
-.mfp-gloss__where {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin: 6px 0;
-  font-size: 12px;
-  color: var(--ink-muted);
-}
-
-.mfp-gloss__where code {
-  overflow-wrap: anywhere;
-}
-
-.mfp-gloss__list {
-  list-style: none;
-  margin: 8px 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.mfp-gloss__add {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-/* A grid, so the headings and the boxes under them are the same columns
-   rather than two guesses that agree at one window width. */
-.mfp-gloss__head,
-.mfp-gloss__row {
-  display: grid;
-  grid-template-columns: minmax(6em, 1fr) minmax(8em, 1.3fr) minmax(6em, 1fr) auto auto minmax(0, 1fr);
-  align-items: center;
-  gap: 6px;
-}
-
-.mfp-gloss__row {
-  padding: 4px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-
-.mfp-gloss__row .mfp-fix__input {
-  min-width: 0;
-  max-width: none;
-  width: 100%;
-}
-
-/* Column names, for rows whose placeholders are hidden by their own values. */
-.mfp-gloss__head {
-  padding: 0 5px;
-  font-size: 11px;
-  color: var(--ink-muted);
-}
-
-.mfp-gloss__add {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px dashed var(--border);
-}
-
-/* The confirmation lives in the row rather than in a dialog: this editor is
-   itself inside a modal half the time, and a modal over a modal is a trap
-   the Escape key cannot reason about. */
-.mfp-gloss__confirm {
-  grid-column: 4 / -1;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  color: var(--danger);
-}
-
-.mfp-fix__files li {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.mfp-fix__files code {
-  color: var(--ink-muted);
-  overflow-wrap: anywhere;
 }
 
 /* --- 需要的程式 (external tools) --------------------------------------- */

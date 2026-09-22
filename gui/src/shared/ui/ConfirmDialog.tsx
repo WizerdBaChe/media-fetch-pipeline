@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Button } from "./Button";
+import { useDialog } from "./useDialog";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -15,16 +16,26 @@ interface ConfirmDialogProps {
   onCancel: () => void;
 }
 
-export function ConfirmDialog({
-  open,
+/** The open/closed switch, kept out of the body so the body may hold hooks.
+ *  A component that returns before `useDialog` would be calling it
+ *  conditionally, which React forbids -- and mounting IS the event the
+ *  focus and the Escape listener are about. */
+export function ConfirmDialog({ open, ...rest }: ConfirmDialogProps) {
+  if (!open) return null;
+  return <ConfirmDialogBody {...rest} />;
+}
+
+function ConfirmDialogBody({
   title,
   body,
   confirmLabel = "確定",
   danger = false,
   onConfirm,
   onCancel,
-}: ConfirmDialogProps) {
-  if (!open) return null;
+}: Omit<ConfirmDialogProps, "open">) {
+  // Focus lands on 取消, in a box whose other button can be destructive
+  // (F10). Escape cancels; closing puts focus back where it came from.
+  const { surface, initial } = useDialog<HTMLDivElement, HTMLButtonElement>(onCancel);
 
   return (
     <div className="mfp-modal__backdrop" onClick={onCancel} role="presentation">
@@ -33,12 +44,16 @@ export function ConfirmDialog({
         role="alertdialog"
         aria-modal="true"
         aria-label={title}
+        tabIndex={-1}
+        ref={surface}
         onClick={(event) => event.stopPropagation()}
       >
         <h2 className="mfp-modal__title">{title}</h2>
         <div className="mfp-modal__body">{body}</div>
         <div className="mfp-modal__actions">
-          <Button onClick={onCancel}>取消</Button>
+          <Button ref={initial} onClick={onCancel}>
+            取消
+          </Button>
           <Button variant={danger ? "danger" : "primary"} onClick={onConfirm}>
             {confirmLabel}
           </Button>

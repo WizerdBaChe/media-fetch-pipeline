@@ -36,7 +36,7 @@
 import { Component, Fragment, type ErrorInfo, type ReactNode } from "react";
 
 interface ErrorBoundaryProps {
-  /** What broke, named as the user would name it: 「設定」, 「佇列」, 「逐字稿」. */
+  /** What broke, named as the user would name it: 「設定」, 「佇列」, 「貼文解說」. */
   label: string;
   /** One sentence about what still works, so the notice is not a dead end. */
   intact?: string;

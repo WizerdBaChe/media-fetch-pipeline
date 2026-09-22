@@ -19,11 +19,8 @@ const api: MfpDesktopApi = {
   showInFolder: (absolutePath: string) =>
     ipcRenderer.invoke("mfp:show-in-folder", absolutePath),
   getVersions: (): Promise<DesktopVersions> => ipcRenderer.invoke("mfp:get-versions"),
-  pickVideo: (accept) => ipcRenderer.invoke("mfp:pick-video", accept),
+  pickVideo: () => ipcRenderer.invoke("mfp:pick-video"),
   revealLogs: (kind, bundle) => ipcRenderer.invoke("mfp:reveal-logs", kind, bundle),
-  pickFolder: (purpose) => ipcRenderer.invoke("mfp:pick-folder", purpose),
-  pickPython: () => ipcRenderer.invoke("mfp:pick-python"),
-  revealModels: () => ipcRenderer.invoke("mfp:reveal-models"),
 };
 
 contextBridge.exposeInMainWorld("mfpDesktop", api);

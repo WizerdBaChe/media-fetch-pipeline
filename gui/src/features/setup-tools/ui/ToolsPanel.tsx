@@ -28,8 +28,9 @@
  * this app deliberately prefers its own copy over PATH.
  */
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/shared/ui/Button";
+import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { ProgressBar } from "@/shared/ui/ProgressBar";
 import {
   TOOL_COPY,
@@ -48,11 +49,16 @@ function megabytes(bytes: number | null): string {
 function ToolRow({
   tool,
   installing,
+  manage,
   onInstall,
   onRemove,
 }: {
   tool: ToolStatus;
   installing: string | null;
+  /** Whether this panel may change or delete what is already installed.
+   *  False on the welcome screen (F11, ruling R4): that screen offers what
+   *  is MISSING, and nothing that alters a machine that is already fine. */
+  manage: boolean;
   onInstall: (name: string) => void;
   onRemove: (name: string) => void;
 }) {
@@ -95,7 +101,7 @@ function ToolRow({
             {busy ? "安裝中…" : `自動安裝（${megabytes(tool.approxBytes)}）`}
           </Button>
         )}
-        {tool.manageable && tool.installed && (
+        {manage && tool.manageable && tool.installed && (
           <Button disabled={anyBusy} onClick={() => onInstall(tool.name)}>
             {busy ? "更新中…" : "更新到最新版"}
           </Button>
@@ -103,7 +109,7 @@ function ToolRow({
         {/* Only for the copy WE put there. Removing it is how somebody goes
             back to the one they installed themselves, and it is the only
             file in this panel we are entitled to delete. */}
-        {tool.source === "managed" && (
+        {manage && tool.source === "managed" && (
           <Button variant="ghost" disabled={anyBusy} onClick={() => onRemove(tool.name)}>
             移除本程式下載的這份
           </Button>
@@ -136,13 +142,32 @@ function ToolRow({
   );
 }
 
-export function ToolsPanel({ heading = true }: { heading?: boolean }) {
+export function ToolsPanel({
+  heading = true,
+  manage = true,
+}: {
+  heading?: boolean;
+  /**
+   * Whether this instance may change or delete what is already installed.
+   *
+   * `false` on the welcome screen (F11, ruling R4). A machine where
+   * everything is ready was being shown 更新到最新版 and 移除本程式下載的這份
+   * on the FIRST screen it ever draws -- one mis-click there took yt-dlp
+   * away, and the next thing the reader saw was 還不能下載 above an empty
+   * queue. What is missing still has its 自動安裝 button, because that is
+   * what the screen is for.
+   */
+  manage?: boolean;
+}) {
   const tools = useTools((state) => state.tools);
   const installing = useTools((state) => state.installing);
   const error = useTools((state) => state.error);
   const load = useTools((state) => state.load);
   const install = useTools((state) => state.install);
   const remove = useTools((state) => state.remove);
+  /** Which tool a 移除 is being asked about. Removing used to call the API
+   *  on the click (F11): recoverable, but only by downloading it again. */
+  const [pending, setPending] = useState<ToolStatus | null>(null);
 
   useEffect(() => {
     void load();
@@ -174,12 +199,44 @@ export function ToolsPanel({ heading = true }: { heading?: boolean }) {
               key={tool.name}
               tool={tool}
               installing={installing}
+              manage={manage}
               onInstall={(name) => void install(name)}
-              onRemove={(name) => void remove(name)}
+              onRemove={() => setPending(tool)}
             />
           ))}
         </ul>
       )}
+
+      {/* 「說出代價」 (tours.ts rule 3) for a destructive action: what goes,
+          what stays, and what getting it back costs in megabytes. Removing
+          is recoverable -- by downloading it again, which is the whole point
+          of saying the number before the button is pressed. */}
+      <ConfirmDialog
+        open={pending !== null}
+        danger
+        title={pending ? `移除本程式下載的${TOOL_COPY[pending.name]?.label ?? pending.name}？` : ""}
+        confirmLabel="移除"
+        onCancel={() => setPending(null)}
+        onConfirm={() => {
+          const name = pending?.name;
+          setPending(null);
+          if (name) void remove(name);
+        }}
+        body={
+          pending && (
+            <>
+              <p>
+                只會刪掉本程式自己下載的那一份，不會動到你自己安裝的版本，
+                也不會刪掉任何已經下載好的影片。
+              </p>
+              <p>
+                之後要再用到它，得重新下載{" "}
+                <strong>{megabytes(pending.approxBytes) || "一次"}</strong>。
+              </p>
+            </>
+          )
+        }
+      />
 
       {/* Said once, at the bottom, rather than on every row. Where the files
           go is the question people ask AFTER pressing the button, and a

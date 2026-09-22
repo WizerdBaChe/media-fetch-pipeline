@@ -31,7 +31,7 @@ class ToolRequest(BaseModel):
 
 
 def _progress_publisher(request: Request):
-    """Same shape and same reasons as `routes_asr._progress_publisher`."""
+    """Wraps a broadcaster publish so a progress callback can fire off-loop."""
     broadcaster = getattr(request.app.state, "broadcaster", None)
     if broadcaster is None:
         return None

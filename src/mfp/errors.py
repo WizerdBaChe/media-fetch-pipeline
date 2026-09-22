@@ -56,6 +56,29 @@ class UsageError(MfpError):
     exit_code = 2
 
 
+class SourceNotFound(UsageError):
+    """The caller named a file or folder and it is not there.
+
+    A subclass of `UsageError` rather than a sibling, because that is what it
+    still IS: the argument cannot be used, exit 2, HTTP 400, and every
+    `pytest.raises(UsageError)` over a missing path stays true. What it is
+    not is the sentence `usage_error` renders as -- 「請求格式錯誤：呼叫端送出
+    了服務無法解讀的參數」, which tells a user who mistyped a path that the
+    PROGRAM sent a malformed request (UX walkthrough 2026-09-07, F1). That is
+    the shape D-155 named: an error message may not claim a cause the program
+    did not determine, and 「the caller sent something unparseable」 is a
+    claim about our own code made over the most ordinary user typo there is.
+
+    `translate.refuse_missing_source` argued the other way when it shipped --
+    "one sentence must not have two codes" -- and it was right about the
+    premise and wrong about which way to resolve it. There is now ONE code
+    for that sentence and it is this one; `usage_error` keeps the requests
+    that really are malformed, which is what its wording was written for.
+    """
+
+    error_code = "source_not_found"
+
+
 class UnsupportedUrlError(MfpError):
     """No adapter matched, or URL failed the platform allowlist."""
 
@@ -157,6 +180,13 @@ class NoMediaInPost(MfpError):
 
     error_code = "no_media_in_post"
     exit_code = 3
+
+    #: The post as read, media lists empty, when the adapter got as far as
+    #: reading it (a Threads text post). `probe`/`fetch` ignore it -- nothing
+    #: to download is their true answer -- and `brief` explains it, because
+    #: for a text-only post the words ARE the post. A `models.Manifest`; typed
+    #: loosely because `errors` sits below `models` in the import graph.
+    text_manifest: object | None = None
 
 
 class MediaTransferFailedError(MfpError):
@@ -338,6 +368,13 @@ class MediaToolFailed(StackError):
 TAXONOMY: dict[str, type[MfpError]] = {
     cls.error_code: cls
     for cls in (
+        # Exit 2, inherited from `UsageError`, which is itself absent from
+        # this table -- a bad CLI invocation has no §10 row to look up. This
+        # one is here anyway because the round-trip test's rule is about the
+        # LOOKUP, not about the wire: a class that declares an exit code and
+        # answers None when asked for it is wrong whether or not anything
+        # currently asks.
+        SourceNotFound,
         UnsupportedUrlError,
         DependencyMissingError,
         ChromeDefaultProfileError,

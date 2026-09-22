@@ -26,6 +26,10 @@ interface TaskRowProps {
   shown?: ReadonlySet<QueueColumnId>;
   /** Resolved from the row's own policy or the global one. */
   effectivePolicy: string;
+  /** Resolved from the row's own 一併存字幕 or the global one -- whether THIS
+   *  row actually asked for captions, which is what decides whether a
+   *  captions-unconfirmed notice means anything here. */
+  effectiveWriteSubs: boolean;
   onToggleSelected: (selected: boolean) => void;
   policyControl?: ReactNode;
   actions?: ReactNode;
@@ -37,6 +41,7 @@ export function TaskRow({
   task,
   shown,
   effectivePolicy,
+  effectiveWriteSubs,
   onToggleSelected,
   policyControl,
   actions,
@@ -95,6 +100,15 @@ export function TaskRow({
               資料夾名稱已縮短
             </span>
           )}
+          {/* Not an error: the download itself succeeded, and this says only
+           *  that the captions question could not be answered (Q2). Shown
+           *  only when the row actually asked -- an unasked row's empty list
+           *  is not ambiguous, it is simply unasked. */}
+          {task.captionsUnconfirmed === true && effectiveWriteSubs && (
+            <span className="mfp-row__note" data-testid="captions-unconfirmed">
+              字幕清單問了兩次都是空的，平台拒絕回答時也會這樣，所以無法確定這支影片有沒有字幕，這次沒有存字幕檔。
+            </span>
+          )}
         </span>
       </td>
 
@@ -128,6 +142,14 @@ export function TaskRow({
         ) : error ? (
           <span className="mfp-row__error" title={error.hint}>
             ⚠ {error.label}
+            {/* The COST, on screen (F6, and tours.ts's own rule 3 「說出代
+                價」). 「重新分析會消耗 1 個配額單位」 lived in a `title`, so
+                the one fact a person needs before pressing 重新分析 was
+                reachable only by hovering -- and this row's recovery button
+                is right beside it. A hint stays in the title; a cost does
+                not, because it is read before the decision, not after the
+                failure. */}
+            {error.cost && <span className="mfp-row__cost">{error.cost}</span>}
           </span>
         ) : (
           <StateBadge state={task.state} />

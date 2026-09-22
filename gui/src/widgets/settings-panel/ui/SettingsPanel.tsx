@@ -37,11 +37,8 @@ import { useEffect, useState } from "react";
 import { api } from "@/shared/api/client";
 import type { DoctorCheck, DoctorReport } from "@/shared/api/types";
 import { POLICY_OPTIONS, useConfigStore } from "@/entities/config/model/store";
-import { GlossaryEditor } from "@/entities/glossary/ui/GlossaryEditor";
-import { revealPath } from "@/shared/lib/desktop";
 import { useOnboarding } from "@/entities/onboarding/model/store";
 import { LogControls } from "@/features/manage-logs/ui/LogControls";
-import { AsrSetupPanel } from "@/features/setup-asr/ui/AsrSetupPanel";
 import { ToolsPanel } from "@/features/setup-tools/ui/ToolsPanel";
 import { Button } from "@/shared/ui/Button";
 import { ErrorBoundary } from "@/shared/ui/ErrorBoundary";
@@ -55,23 +52,18 @@ const AUTO_CLEAR_OPTIONS = [
 ] as const;
 
 /**
- * The five things someone comes here to do.
+ * The three things someone comes here to do.
  *
  * Each hint says what the category is FOR, in the words of the person looking
- * for it, because a list of five nouns is a list you have to read all of.
+ * for it, because a list of nouns is a list you have to read all of.
  */
 const CATEGORIES = [
   { id: "general", label: "一般", hint: "存到哪裡、下載什麼畫質" },
-  { id: "asr", label: "語音辨識與翻譯", hint: "做逐字稿要用的引擎與模型" },
-  { id: "glossary", label: "校正詞庫", hint: "逐字稿裡的專有名詞" },
   { id: "logs", label: "紀錄", hint: "動作紀錄與錯誤資料" },
   { id: "diagnostics", label: "診斷", hint: "這台機器現在的狀況" },
 ] as const;
 
-/** Exported so a caller can open 設定 AT a category. 逐字稿 and 文件翻譯 both
- *  send the user here to set up recognition, and on a page that shows one
- *  category at a time, landing on 一般 makes them go looking for it -- which
- *  is a regression the categories introduced and this closes. */
+/** Exported so a caller can open 設定 AT a category. */
 export type SettingsCategory = (typeof CATEGORIES)[number]["id"];
 
 /** What a check's name means to a person. Unknown names fall through to
@@ -86,11 +78,6 @@ const CHECK_LABELS: Record<string, string> = {
   ffmpeg: "ffmpeg",
   "javascript-runtime": "JavaScript 執行環境",
   chrome: "Chrome",
-  // Named for what it does, not for the config section it lives in. The row
-  // used to fall through to the literal string `asr`, which is a field name
-  // -- and a field name in a dependency table reads as a program the user is
-  // supposed to have heard of.
-  asr: "語音辨識（逐字稿）",
 };
 
 function statusOf(check: DoctorCheck): { text: string; tone: string } {
@@ -248,6 +235,24 @@ function GeneralCategory() {
           </select>
         </label>
 
+        {/* On/off only, and no language beside it: asking for a named
+            language asks the platform to TRANSLATE, and a stored default
+            nobody remembers setting is the worst place for that decision
+            (D-156/P-49). The wording says which file appears and where,
+            because that is what the user will see change. */}
+        <label className="mfp-settings__row">
+          <span>一併存字幕</span>
+          <input
+            type="checkbox"
+            checked={config.writeSubs === true}
+            onChange={(event) => void patch({ writeSubs: event.target.checked })}
+          />
+          <small>
+            有字幕軌的影片，會在影片旁邊多存一個字幕檔，語言是影片裡實際說的那一種。
+            沒有字幕軌的影片照常下載，不會失敗。
+          </small>
+        </label>
+
         <label className="mfp-settings__row">
           <span>自動清除已完成</span>
           <select
@@ -343,9 +348,7 @@ export function SettingsPanel({
   initial = "general",
 }: {
   onClose: () => void;
-  /** Which category to land on. 逐字稿 and 文件翻譯 send people here to set up
-   *  recognition, and on a one-category-at-a-time page they would otherwise
-   *  arrive at 一般 and have to go looking. */
+  /** Which category to land on. */
   initial?: SettingsCategory;
 }) {
   const config = useConfigStore((state) => state.config);
@@ -398,12 +401,10 @@ export function SettingsPanel({
           </ul>
         </nav>
 
-        {/* The innermost boundary, and the one the 2026-08-30 report is
-            actually about: a `/v1/asr/readiness` missing `home` threw inside
-            語音辨識與翻譯 and took the whole window with it. Contained here,
-            the category list survives, so the user can still reach 一般 or
-            紀錄 -- and switching category clears the error by `resetKey`
-            rather than needing the button. */}
+        {/* Contained here so a throw in one category leaves the category
+            list reachable, so the user can still reach 一般 or 紀錄 --
+            and switching category clears the error by `resetKey` rather
+            than needing the button. */}
         <ErrorBoundary
           label={CATEGORIES.find((entry) => entry.id === category)?.label ?? category}
           intact="左邊的分類還在，其他設定都可以照常使用。"
@@ -411,18 +412,6 @@ export function SettingsPanel({
         >
         <div className="mfp-settings__page" data-category={category}>
           {category === "general" && <GeneralCategory />}
-          {category === "asr" && <AsrSetupPanel />}
-          {category === "glossary" && (
-            <section className="mfp-settings__section" data-testid="glossary-panel">
-              <div className="mfp-settings__section-head">
-                <h3>校正詞庫（逐字稿的專有名詞）</h3>
-              </div>
-              {/* The same editor opens in a dialog from 逐字稿; this is its
-                  home. It is a thing the user OWNS rather than a diagnostic,
-                  which is why it is its own category and not part of 診斷. */}
-              <GlossaryEditor onReveal={(path) => void revealPath(path, "file")} />
-            </section>
-          )}
           {category === "logs" && <LogControls />}
           {category === "diagnostics" && <DiagnosticsCategory />}
         </div>

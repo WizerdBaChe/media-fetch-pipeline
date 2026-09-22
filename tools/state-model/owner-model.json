@@ -1,0 +1,349 @@
+{
+  "nodes": [
+    {
+      "id": "ui_dl",
+      "col": "c1",
+      "row": "r1",
+      "side": "stay",
+      "name": "操作介面",
+      "role": "命令列與視窗，人從這裡開始",
+      "x": 40.0,
+      "y": 142.0,
+      "w": 200,
+      "h": 76
+    },
+    {
+      "id": "agent",
+      "col": "c3",
+      "row": "r1",
+      "side": "stay",
+      "name": "代理人介面",
+      "role": "讓 AI 助理直接驅動這個工具",
+      "x": 560.0,
+      "y": 142.0,
+      "w": 200,
+      "h": 76
+    },
+    {
+      "id": "ui_tr",
+      "col": "c4",
+      "row": "r1",
+      "side": "go",
+      "name": "逐字稿工作區",
+      "role": "人在這裡讀稿、改稿",
+      "x": 820.0,
+      "y": 142.0,
+      "w": 200,
+      "h": 76
+    },
+    {
+      "id": "url",
+      "col": "c1",
+      "row": "r2",
+      "side": "stay",
+      "name": "一個公開連結",
+      "role": "整件事的入口",
+      "x": 40.0,
+      "y": 282.0,
+      "w": 200,
+      "h": 76
+    },
+    {
+      "id": "fetch",
+      "col": "c2",
+      "row": "r2",
+      "side": "stay",
+      "name": "取得素材",
+      "role": "談速率、抓影片與圖片",
+      "x": 300.0,
+      "y": 282.0,
+      "w": 200,
+      "h": 76
+    },
+    {
+      "id": "subs",
+      "col": "c3",
+      "row": "r2",
+      "side": "stay",
+      "name": "平台自帶字幕",
+      "role": "平台已經有的就直接拿",
+      "x": 560.0,
+      "y": 282.0,
+      "w": 200,
+      "h": 76
+    },
+    {
+      "id": "stack",
+      "col": "c1",
+      "row": "r3",
+      "side": "stay",
+      "name": "長圖拼接",
+      "role": "把連續截圖接成一張",
+      "x": 40.0,
+      "y": 422.0,
+      "w": 200,
+      "h": 76
+    },
+    {
+      "id": "store",
+      "col": "c2",
+      "row": "r3",
+      "side": "stay",
+      "name": "檔案落地與紀錄",
+      "role": "每個檔去了哪裡、誰要它存在",
+      "x": 300.0,
+      "y": 422.0,
+      "w": 200,
+      "h": 76
+    },
+    {
+      "id": "asr",
+      "col": "c4",
+      "row": "r3",
+      "side": "go",
+      "name": "聽寫",
+      "role": "把聲音變成有時間的文字",
+      "x": 820.0,
+      "y": 422.0,
+      "w": 200,
+      "h": 76
+    },
+    {
+      "id": "judge",
+      "col": "c5",
+      "row": "r3",
+      "side": "go",
+      "name": "品質判定",
+      "role": "指出稿子哪裡不可信",
+      "x": 1080.0,
+      "y": 422.0,
+      "w": 200,
+      "h": 76
+    },
+    {
+      "id": "brief",
+      "col": "c1",
+      "row": "r4",
+      "side": "stay",
+      "name": "圖片影片解說",
+      "role": "只開放給代理人，不進畫面",
+      "x": 40.0,
+      "y": 562.0,
+      "w": 200,
+      "h": 76
+    },
+    {
+      "id": "engine",
+      "col": "c4",
+      "row": "r4",
+      "side": "shared",
+      "name": "語音引擎與模型",
+      "role": "兩個產品共用的同一份",
+      "x": 820.0,
+      "y": 562.0,
+      "w": 200,
+      "h": 76
+    },
+    {
+      "id": "fix",
+      "col": "c5",
+      "row": "r4",
+      "side": "go",
+      "name": "清理、校正與翻譯",
+      "role": "去重複、補術語、換語言",
+      "x": 1080.0,
+      "y": 562.0,
+      "w": 200,
+      "h": 76
+    }
+  ],
+  "edges": [
+    {
+      "a": "ui_dl",
+      "b": "url",
+      "kind": "line",
+      "label": null
+    },
+    {
+      "a": "url",
+      "b": "fetch",
+      "kind": "line",
+      "label": null
+    },
+    {
+      "a": "fetch",
+      "b": "subs",
+      "kind": "line",
+      "label": null
+    },
+    {
+      "a": "fetch",
+      "b": "store",
+      "kind": "line",
+      "label": null
+    },
+    {
+      "a": "subs",
+      "b": "store",
+      "kind": "vstep",
+      "label": null
+    },
+    {
+      "a": "agent",
+      "b": "fetch",
+      "kind": "feed",
+      "label": null
+    },
+    {
+      "a": "store",
+      "b": "stack",
+      "kind": "line",
+      "label": null
+    },
+    {
+      "a": "store",
+      "b": "brief",
+      "kind": "hstep",
+      "label": null
+    },
+    {
+      "a": "store",
+      "b": "asr",
+      "kind": "line",
+      "label": "音檔"
+    },
+    {
+      "a": "ui_tr",
+      "b": "asr",
+      "kind": "line",
+      "label": null
+    },
+    {
+      "a": "asr",
+      "b": "judge",
+      "kind": "line",
+      "label": null
+    },
+    {
+      "a": "judge",
+      "b": "fix",
+      "kind": "line",
+      "label": null
+    },
+    {
+      "a": "engine",
+      "b": "asr",
+      "kind": "line",
+      "label": null
+    },
+    {
+      "a": "engine",
+      "b": "fix",
+      "kind": "dash",
+      "label": null
+    },
+    {
+      "a": "fix",
+      "b": "store",
+      "kind": "return",
+      "label": "成品寫回"
+    }
+  ],
+  "trace": {
+    "ui_dl": [
+      "cli",
+      "serve"
+    ],
+    "agent": [
+      "agent",
+      "capabilities"
+    ],
+    "ui_tr": [
+      "transcript-workspace",
+      "read-transcript",
+      "refine-transcript",
+      "translate-transcript",
+      "translate-document",
+      "setup-asr"
+    ],
+    "url": [
+      "inputs",
+      "policy",
+      "redact"
+    ],
+    "fetch": [
+      "download",
+      "budget",
+      "pipeline",
+      "toolchain",
+      "mediatool"
+    ],
+    "subs": [
+      "captions"
+    ],
+    "store": [
+      "runs",
+      "index",
+      "naming",
+      "winpath",
+      "logs"
+    ],
+    "stack": [
+      "stack"
+    ],
+    "brief": [
+      "brief"
+    ],
+    "asr": [
+      "asr",
+      "asr_models",
+      "transcript",
+      "runs_transcript",
+      "runner.py",
+      "translate_runner.py",
+      "fetch_model.py"
+    ],
+    "judge": [
+      "quality",
+      "cues"
+    ],
+    "fix": [
+      "correct",
+      "tidy",
+      "refine",
+      "translate",
+      "translate_doc"
+    ],
+    "engine": [
+      "_runtimes\\asr-py",
+      "_runtimes\\models\\faster-whisper-large-v3",
+      "_runtimes\\models\\nllb-200-distilled-1.3B-ct2-int8"
+    ]
+  },
+  "cut": {
+    "config": "設定與錯誤型別，每一格都會用到；畫出來只會變成連到所有東西的線",
+    "errors": "同上",
+    "models": "同上",
+    "doctor": "診斷指令，不在主流程上",
+    "queue": "排程與行程管理，屬於「怎麼跑」而不是「做什麼」",
+    "capture": "同上",
+    "sidecar": "同上",
+    "routes_transcript.py": "服務層路由，是介面到功能之間的接線，不是獨立的一件事",
+    "routes_asr.py": "同上"
+  },
+  "numbers": {
+    "go_count": "22",
+    "go_lines": "15,569",
+    "shared_gb": "4.6",
+    "unsettled": "7",
+    "ext_go": "8,043",
+    "sidecar": "1,861",
+    "gui_go": "4,285",
+    "api_go": "1,380"
+  },
+  "seam": 790.0,
+  "viewbox": [
+    1340,
+    742
+  ]
+}

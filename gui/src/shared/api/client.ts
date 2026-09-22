@@ -30,27 +30,6 @@ import type {
   SweepResult,
   Task,
   TaskState,
-  CaptionTracks,
-  Transcript,
-  TranscriptRequest,
-  AsrCatalogueEntry,
-  AsrInstallMode,
-  AsrModel,
-  AsrReadiness,
-  AsrScanResult,
-  TranslateRequest,
-  TranslateDocRequest,
-  TranslationResult,
-  DocumentTranslationResult,
-  CorrectionOffer,
-  CorrectionWritten,
-  GlossaryReport,
-  FillerReport,
-  RefineOffer,
-  RefineStage,
-  RefineWritten,
-  TidyOffer,
-  TidyWritten,
 } from "./types";
 
 const BASE = "/v1";
@@ -134,9 +113,18 @@ export const api = {
   listTasks: (state?: TaskState) =>
     request<Task[]>(state ? `/queue?state=${encodeURIComponent(state)}` : "/queue"),
 
-  /** Parse + enqueue in one call. The response carries the INV-7 change report. */
-  addTasks: (text: string) =>
-    request<AddResponse>("/queue", { method: "POST", body: JSON.stringify({ text }) }),
+  /**
+   * Parse + enqueue in one call. The response carries the INV-7 change report.
+   *
+   * `writeSubs` is tri-state on purpose: omitted (or `null`) leaves the new
+   * rows following the global setting, so this call means the same thing it
+   * meant before the field existed.
+   */
+  addTasks: (text: string, writeSubs: boolean | null = null) =>
+    request<AddResponse>("/queue", {
+      method: "POST",
+      body: JSON.stringify({ text, writeSubs }),
+    }),
 
   patchTask: (
     id: string,
@@ -270,279 +258,6 @@ export const api = {
     request<BriefSaved>("/brief:save", {
       method: "POST",
       body: JSON.stringify(payload),
-    }),
-
-  /* --- 延伸工具：逐字稿 ------------------------------------------------- */
-
-  /** Read a video's captions as lines -- or, when there are none and the
-   *  source is a media file, LISTEN to it.
-   *
-   *  Still not a job. Reading captions is one metadata read and one small
-   *  download; recognition is minutes, which is what `asr` progress events
-   *  are for. Job states would be a second vocabulary for a request that
-   *  either returns a transcript or an error, and nothing in between that a
-   *  caller can act on. */
-  readTranscript: (payload: TranscriptRequest) =>
-    request<Transcript>("/transcript", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  /** Which caption tracks exist, before committing to one. Costs a metadata
-   *  read and downloads nothing, so the workspace can offer a language
-   *  instead of letting the reader discover by failure that the original
-   *  could not be determined. */
-  captionTracks: (url: string) =>
-    request<CaptionTracks>("/transcript:tracks", {
-      method: "POST",
-      body: JSON.stringify({ url }),
-    }),
-
-  /** Translate a transcript that already exists.
-   *
-   *  Takes a caption FILE, never a URL or a media path: translating is a
-   *  second thing a person asks for once they have a transcript in front of
-   *  them, and there is deliberately no route from an mp3 to here. */
-  translate: (payload: TranslateRequest) =>
-    request<TranslationResult>("/translate", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  /** Translate a DOCUMENT -- `.txt`, `.md`, `.markdown`.
-   *
-   *  A different call rather than a flag on `translate`, mirroring the two
-   *  verbs underneath: `translate` reads one line as one utterance, which is
-   *  right for captions and wrong for prose (D-131). `sourceLanguage` is
-   *  required in practice here, and the refusal for its absence comes from
-   *  the server so there is one sentence explaining it, not two. */
-  translateDocument: (payload: TranslateDocRequest) =>
-    request<DocumentTranslationResult>("/translate:doc", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  /** What COULD be corrected in a transcript. Writes nothing.
-   *
-   *  Separate from `applyCorrections` because the user is between the two
-   *  calls. That is the whole shape of the feature rather than an API
-   *  style: the version that decided and wrote in one step is the one that
-   *  damaged correct text on every real firing (D-115). */
-  proposeCorrections: (source: string, exactOnly = false) =>
-    request<CorrectionOffer>("/correct:propose", {
-      method: "POST",
-      body: JSON.stringify({ source, exactOnly }),
-    }),
-
-  /** Write the corrected copy and the record of what changed.
-   *
-   *  `accepted` is a list of INDICES into the offer, never replacements. A
-   *  call that could name its own before/after pair would let the renderer
-   *  write anything at all, and the point of the glossary is that it is the
-   *  only source of what may be written. */
-  applyCorrections: (source: string, accepted?: number[], exactOnly = false) =>
-    request<CorrectionWritten>("/correct:apply", {
-      method: "POST",
-      body: JSON.stringify({ source, exactOnly, ...(accepted ? { accepted } : {}) }),
-    }),
-
-  /** What a reading copy WOULD leave out. Writes nothing.
-   *
-   *  Two calls with the user between them, like the corrector -- and it
-   *  matters more here, because this one DELETES. */
-  proposeTidy: (source: string) =>
-    request<TidyOffer>("/tidy:propose", {
-      method: "POST",
-      body: JSON.stringify({ source }),
-    }),
-
-  /** Write the reading copy. The original is not among the files.
-   *
-   *  `accepted` is a list of INDICES into the offer and can only NARROW it.
-   *  The server recomputes what is eligible, so a renderer cannot ask for a
-   *  cue the filler list does not cover. */
-  applyTidy: (source: string, accepted?: number[]) =>
-    request<TidyWritten>("/tidy:apply", {
-      method: "POST",
-      body: JSON.stringify({ source, ...(accepted ? { accepted } : {}) }),
-    }),
-
-  /** What the ticked stages WOULD do, in one call. Writes nothing.
-   *
-   *  One endpoint for one stage or both, so 「只做校正」 is a plan of length
-   *  one rather than a different feature with its own code path. The order
-   *  in `stages` is discarded: the server runs `refine.ORDER`, which is what
-   *  makes the output of 校正＋整理 one artifact with one name instead of
-   *  two spellings of the same content. */
-  proposeRefine: (source: string, stages: RefineStage[], exactOnly = false) =>
-    request<RefineOffer>("/refine:propose", {
-      method: "POST",
-      body: JSON.stringify({ source, stages, exactOnly }),
-    }),
-
-  /** Write the one set the ticked stages produce. The original is not among
-   *  the files.
-   *
-   *  Both accepted lists are INDICES into the offer and can only NARROW it.
-   *  The server recomputes the whole plan, so a renderer can neither ask for
-   *  a substitution the glossary does not hold nor a deletion the filler
-   *  list does not cover. */
-  applyRefine: (
-    source: string,
-    stages: RefineStage[],
-    acceptedCorrections?: number[],
-    acceptedRemovals?: number[],
-    exactOnly = false,
-  ) =>
-    request<RefineWritten>("/refine:apply", {
-      method: "POST",
-      body: JSON.stringify({
-        source,
-        stages,
-        exactOnly,
-        ...(acceptedCorrections ? { acceptedCorrections } : {}),
-        ...(acceptedRemovals ? { acceptedRemovals } : {}),
-      }),
-    }),
-
-  /** The filler whitelist. Empty is the normal state on a new machine, and
-   *  an empty one removes nothing. */
-  fillers: () => request<FillerReport>("/fillers"),
-
-  /** Add terms, and/or the offered common set.
-   *
-   *  `common` is a flag rather than a default because nothing may ever be
-   *  removed by a term the user did not put on their own list. */
-  addFillers: (terms: string[], common = false) =>
-    request<FillerReport>("/fillers:add", {
-      method: "POST",
-      body: JSON.stringify({ terms, common }),
-    }),
-
-  /** Drop terms. Nothing already written changes. */
-  removeFillers: (terms: string[]) =>
-    request<FillerReport>("/fillers:remove", {
-      method: "POST",
-      body: JSON.stringify({ terms }),
-    }),
-
-  /** The whitelist. Empty is the normal state on a new machine. */
-  glossary: () => request<GlossaryReport>("/glossary"),
-
-  /** Declare a term, and optionally the wrong form just seen.
-   *
-   *  The alias is what makes this worth doing: a correction made by hand
-   *  once is matched exactly the next time, so the feature gets better from
-   *  use rather than from a bigger model. */
-  enrolTerm: (term: string, alias = "") =>
-    request<GlossaryReport>("/glossary:enrol", {
-      method: "POST",
-      body: JSON.stringify({ term, alias }),
-    }),
-
-  /** Rewrite one entry, or add one in full.
-   *
-   *  `original` names the entry being replaced -- the term as it was BEFORE
-   *  the edit, so the correct spelling itself can be corrected. Empty adds.
-   *  A glossary that could only be appended to made its first typo
-   *  permanent, and this list decides what the corrector may write. */
-  saveTerm: (entry: {
-    original?: string;
-    term: string;
-    aliases: string[];
-    note?: string;
-  }) =>
-    request<GlossaryReport>("/glossary:update", {
-      method: "POST",
-      body: JSON.stringify({
-        original: entry.original ?? "",
-        term: entry.term,
-        aliases: entry.aliases,
-        note: entry.note ?? "",
-      }),
-    }),
-
-  /** Forget a term. Transcripts already corrected with it keep their
-   *  corrections -- this only stops it being proposed again. */
-  removeTerm: (term: string) =>
-    request<GlossaryReport>("/glossary:remove", {
-      method: "POST",
-      body: JSON.stringify({ term }),
-    }),
-
-  /* --- 語音辨識的準備 --------------------------------------------------- */
-
-  /** Can this machine transcribe, and if not, what is left to do.
-   *
-   *  One call, not four. The panel used to be assembled from `getDoctor`
-   *  plus `getConfig` plus the renderer's own idea of what a model folder
-   *  is -- which is how the settings panel ended up showing a row labelled
-   *  `asr` with a path in it and no way to act on either. */
-  asrReadiness: () => request<AsrReadiness>("/asr/readiness"),
-
-  /** What models are in a folder the user just picked. Costs a directory
-   *  walk and a few header reads; loads nothing. */
-  asrScanModels: (path: string) =>
-    request<AsrScanResult>("/asr/models:scan", {
-      method: "POST",
-      body: JSON.stringify({ path }),
-    }),
-
-  /** Bring one in. Minutes for a copy, instant for a link -- progress
-   *  arrives on the event stream, not on this promise. */
-  asrInstallModel: (payload: { path: string; mode: AsrInstallMode; name?: string }) =>
-    request<{ model: AsrModel; readiness: AsrReadiness }>("/asr/models:install", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  asrSelectModel: (name: string) =>
-    request<AsrReadiness>("/asr/models:select", {
-      method: "POST",
-      body: JSON.stringify({ name }),
-    }),
-
-  /** Only ever removes a shortcut; the server refuses anything else, so a
-   *  real 3 GB folder can never be deleted by a click in here. */
-  asrRemoveModel: (name: string) =>
-    request<AsrReadiness>("/asr/models:remove", {
-      method: "POST",
-      body: JSON.stringify({ name }),
-    }),
-
-  /** Point at a Python. Validated before it is saved, so the answer to
-   *  "did that work" arrives with the action instead of at the next
-   *  transcription. */
-  asrSetEngine: (path: string) =>
-    request<AsrReadiness>("/asr/engine", {
-      method: "POST",
-      body: JSON.stringify({ path }),
-    }),
-
-  asrSetHome: (path: string) =>
-    request<AsrReadiness>("/asr/home", {
-      method: "POST",
-      body: JSON.stringify({ path }),
-    }),
-
-  asrSetDownload: (allowed: boolean) =>
-    request<AsrReadiness>("/asr/download", {
-      method: "POST",
-      body: JSON.stringify({ name: allowed ? "on" : "off" }),
-    }),
-
-  asrCatalogue: () => request<{ models: AsrCatalogueEntry[] }>("/asr/catalogue"),
-
-  asrDownloadModel: (name: string) =>
-    request<{ model: AsrModel; readiness: AsrReadiness }>("/asr/models:download", {
-      method: "POST",
-      body: JSON.stringify({ name }),
-    }),
-
-  asrSetAudio: (mode: string) =>
-    request<AsrReadiness>("/asr/audio", {
-      method: "POST",
-      body: JSON.stringify({ name: mode }),
     }),
 
   /* --- 外部程式（yt-dlp / ffmpeg / Chrome） ----------------------------- */

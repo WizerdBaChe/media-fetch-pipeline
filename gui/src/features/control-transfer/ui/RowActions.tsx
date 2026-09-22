@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { Fragment, useId, type ReactNode } from "react";
 import { Button } from "@/shared/ui/Button";
 import { useTaskStore } from "@/entities/task/model/store";
 import { useSessionStore } from "@/entities/session/model/store";
@@ -31,6 +31,12 @@ export function RowActions({ task, outputAction, extensionAction }: RowActionsPr
   const act = useTaskStore((state) => state.act);
   const remove = useTaskStore((state) => state.remove);
   const capabilities = useSessionStore((state) => state.capabilities);
+  // Per row, with the action id appended below. A disabled button whose
+  // reason lives only in `title` says nothing to a keyboard, a touch screen
+  // or a screen reader -- and 「還不能用」 read as 「壞了」 (F6). The reason
+  // text is off-screen rather than in the cell because this column's controls
+  // are measured and must not move.
+  const reasonId = useId();
 
   /**
    * Two zones, split by how STABLE the contents are (UAT item 5-6).
@@ -70,15 +76,29 @@ export function RowActions({ task, outputAction, extensionAction }: RowActionsPr
             a real ghost: it is right-aligned, and nothing reads a header
             against it. */}
         {rowActions(task, capabilities).map((action) => (
-          <Button
-            key={action.id}
-            variant={action.primary ? "primary" : action.danger ? "danger" : "default"}
-            disabled={Boolean(action.disabledReason)}
-            title={action.disabledReason}
-            onClick={() => void act(task.id, action.id)}
-          >
-            {action.label}
-          </Button>
+          <Fragment key={action.id}>
+            <Button
+              variant={action.primary ? "primary" : action.danger ? "danger" : "default"}
+              disabled={Boolean(action.disabledReason)}
+              title={action.disabledReason}
+              aria-describedby={
+                action.disabledReason ? `${reasonId}-${action.id}` : undefined
+              }
+              onClick={() => void act(task.id, action.id)}
+            >
+              {action.label}
+            </Button>
+            {/* OUTSIDE the button, deliberately. A button's accessible name
+                comes from its contents, so a reason nested inside it would
+                rename the control 「下載完成後才能使用重新下載」 rather than
+                describe it -- and every test and every reader that looks for
+                a button by its label would stop finding it. */}
+            {action.disabledReason && (
+              <span id={`${reasonId}-${action.id}`} className="mfp-sr-only">
+                {action.disabledReason}
+              </span>
+            )}
+          </Fragment>
         ))}
       </span>
 

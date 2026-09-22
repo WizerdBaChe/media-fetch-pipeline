@@ -12,11 +12,7 @@ import { useConfigStore } from "@/entities/config/model/store";
 import { useSessionStore } from "@/entities/session/model/store";
 import { useStackStore } from "@/entities/stack-job/model/store";
 import { useTaskStore } from "@/entities/task/model/store";
-import { useAsrProgress } from "@/features/read-transcript/model/progress";
-import { useAsrSetup } from "@/features/setup-asr/model/store";
 import { useTools } from "@/features/setup-tools/model/store";
-import { useTranslateDoc } from "@/features/translate-document/model/store";
-import { useTranslate } from "@/features/translate-transcript/model/store";
 import { subscribe as subscribeTabs } from "@/shared/lib/tabSync";
 
 export function useLiveUpdates(): void {
@@ -59,28 +55,9 @@ export function useLiveUpdates(): void {
           message: `${wait.platform} 配額用盡，約 ${Math.ceil(wait.resumesInMs / 1000)} 秒後繼續（${wait.reason}）`,
         }),
       onStackJob: (job) => useStackStore.getState().upsert(job),
-      // Not cleared here. The request that produced these is still open, and
-      // the workspace awaiting it clears the readout when it returns --
-      // clearing on a terminal-looking phase would blank the line during the
-      // gap between the last segment and the response arriving.
-      onAsrProgress: (progress) => useAsrProgress.getState().apply(progress),
-      // Same treatment, different work: a 3 GB model copy is minutes, and
-      // the setup panel is open while it happens.
-      onAsrInstall: (progress) =>
-        useAsrSetup.getState().applyInstallProgress(progress),
-      // Same treatment again, one layer earlier in a person's life with this
-      // app: fetching ffmpeg is ~106 MB, and the banner that started it is
-      // the only thing on screen saying anything is happening.
+      // Fetching ffmpeg is ~106 MB, and the banner that started it is the
+      // only thing on screen saying anything is happening.
       onToolInstall: (progress) => useTools.getState().applyProgress(progress),
-      // Both translate stores, because `mt` is ONE event name for two
-      // panels and the server has no idea which asked. Safe rather than
-      // sloppy: only one translation can be in flight at a time, and each
-      // panel renders progress only while its own request is running -- so
-      // the one that did not ask is updating a field nothing is reading.
-      onTranslate: (progress) => {
-        useTranslate.getState().applyProgress(progress);
-        useTranslateDoc.getState().applyProgress(progress);
-      },
       onStatus: (status) => useSessionStore.getState().setStreamStatus(status),
     });
 

@@ -31,9 +31,7 @@ the one place in the product that fetches an executable and then RUNS it,
 so it is the one place where "probably fine" is not good enough.
 
 What is deliberately NOT here: Chrome (we cannot install it, so the UI
-links to it), and the speech engine (a Python interpreter with
-faster-whisper in it -- a different problem shape entirely, and one an exe
-download cannot solve). `asr_models` owns that half.
+links to it).
 """
 
 from __future__ import annotations

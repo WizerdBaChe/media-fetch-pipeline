@@ -110,7 +110,17 @@ def read_skill() -> str:
 #: be read every time, and a tool is read only when the task is that tool's.
 #: 658 lines teaching nineteen verbs was the symptom -- `brief` was ~70 of
 #: them, and an agent explaining one post read all 658.
-EXTENSIONS: tuple[str, ...] = ("quotestack", "brief", "transcript", "translatedoc")
+EXTENSIONS: tuple[str, ...] = ("quotestack", "brief")
+
+#: Extension files a PAST build wrote that this one no longer ships. Named
+#: explicitly, never a wildcard over `extensions/`: a wildcard would delete
+#: files this product never put there. Every registered skills directory
+#: that still holds one of these is teaching a verb that no longer exists,
+#: so it is treated the same as a stale current extension -- reported as
+#: `update` and removed on apply -- rather than left to rot forever, since
+#: this build only ever WRITES current extensions and never revisits old
+#: ones on its own.
+RETIRED_EXTENSIONS: tuple[str, ...] = ("transcript", "translatedoc")
 
 
 def extension_path(name: str) -> Path:
@@ -160,6 +170,22 @@ def _write_extensions(skill_dir: Path) -> None:
     """Put this build's extension contracts beside the Skill."""
     for name in _stale_extensions(skill_dir):
         _write(skill_dir / "extensions" / f"{name}.md", read_extension(name))
+    _remove_retired_extensions(skill_dir)
+
+
+def _retired_extensions_present(skill_dir: Path) -> list[str]:
+    """Which `RETIRED_EXTENSIONS` files still sit under `skill_dir`."""
+    return [
+        name
+        for name in RETIRED_EXTENSIONS
+        if (skill_dir / "extensions" / f"{name}.md").exists()
+    ]
+
+
+def _remove_retired_extensions(skill_dir: Path) -> None:
+    """Delete any `RETIRED_EXTENSIONS` file this build no longer ships."""
+    for name in RETIRED_EXTENSIONS:
+        (skill_dir / "extensions" / f"{name}.md").unlink(missing_ok=True)
 
 
 @dataclass(frozen=True)
@@ -297,6 +323,7 @@ def plan_install(key: str, override: Path | None = None) -> Plan:
         destination = path / "SKILL.md"
         wanted = read_skill()
         stale = _stale_extensions(path)
+        retired = _retired_extensions_present(path)
         if not destination.exists():
             action, detail = "create", f"write the Skill to {destination}"
         elif _read(destination) != wanted:
@@ -310,6 +337,13 @@ def plan_install(key: str, override: Path | None = None) -> Plan:
             # it gets flags that do not exist and codes that do.
             action = "update"
             detail = f"refresh {len(stale)} extension file(s) under {path / 'extensions'}"
+        elif retired:
+            # A verb this build no longer has, still taught beside a Skill
+            # that no longer mentions it -- worse than an absent contract,
+            # because nothing else here will ever notice and clean it up.
+            names = ", ".join(f"{name}.md" for name in retired)
+            action = "update"
+            detail = f"remove {len(retired)} retired extension file(s): {names}"
         else:
             action, detail = "unchanged", f"{destination} already matches this build"
         return Plan(target.key, target.kind, destination, action, detail)
@@ -356,7 +390,7 @@ def apply_plan(plan: Plan, key: str, override: Path | None = None) -> Plan:
             # which reads, to anything that walks the folder, like a partially
             # installed product rather than a removed one.
             extensions = plan.path.parent / "extensions"
-            for name in EXTENSIONS:
+            for name in (*EXTENSIONS, *RETIRED_EXTENSIONS):
                 (extensions / f"{name}.md").unlink(missing_ok=True)
             try:
                 extensions.rmdir()

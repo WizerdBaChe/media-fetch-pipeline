@@ -8,11 +8,10 @@
  * anything about it. `mfp.toolchain` is the half that can act; this is the
  * half that asks.
  *
- * Shaped like `setup-asr`'s store and for the same reason: the server's
- * answer IS the state, so every action ends by storing what the server
- * returned rather than firing a second question at it. One `installing`
- * name rather than a boolean, because two rows each need to show their own
- * progress and only one of them is moving.
+ * The server's answer IS the state, so every action ends by storing what the
+ * server returned rather than firing a second question at it. One
+ * `installing` name rather than a boolean, because two rows each need to
+ * show their own progress and only one of them is moving.
  *
  * Deliberately NOT part of `entities/config`. What is being asked here --
  * does this machine have a working ffmpeg, and which copy is answering --
@@ -216,9 +215,19 @@ export const useTools = create<ToolsState>((set, get) => ({
     set({ error: null });
     try {
       const status = await api.removeTool(name);
-      set((state) => ({
-        tools: (state.tools ?? []).map((tool) => (tool.name === name ? status : tool)),
-      }));
+      // Shape-checked, never trusted for type-checking (P-72). An older
+      // sidecar answers `{}`, and splicing that into the list gives the row
+      // renderer an `undefined` to read `.name` off -- which unmounts the
+      // panel that was showing the tool. Found by the first test that ever
+      // clicked 移除 (F11): the removal path had no coverage at all, so the
+      // fake could return nothing and nobody noticed.
+      if (status && typeof status.name === "string") {
+        set((state) => ({
+          tools: (state.tools ?? []).map((tool) => (tool.name === name ? status : tool)),
+        }));
+      } else {
+        await get().load({ keepError: true });
+      }
     } catch (caught) {
       set({ error: messageOf(caught) });
     }

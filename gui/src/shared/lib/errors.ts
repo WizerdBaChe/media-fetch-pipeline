@@ -13,6 +13,18 @@ export interface ErrorPresentation {
   label: string;
   recovery: Recovery;
   hint?: string;
+  /**
+   * What pressing the recovery button COSTS, when it costs something.
+   *
+   * A separate field from `hint` because it is read at a different moment:
+   * a hint explains a row that already went wrong, a cost is what the reader
+   * needs BEFORE deciding, and it must therefore be on screen rather than in
+   * a `title` only a mouse can reach (UX walkthrough F6; tours.ts's own rule
+   * 3, 「說出代價」). `errors.test.ts` asserts no `hint` names one, because
+   * the way this was lost the first time was by writing the sentence in the
+   * field that happened to exist.
+   */
+  cost?: string;
 }
 
 export const ERROR_PRESENTATION: Record<string, ErrorPresentation> = {
@@ -41,14 +53,21 @@ export const ERROR_PRESENTATION: Record<string, ErrorPresentation> = {
     // not "retry": the post is fine and retrying will find the same
     // nothing. Telling the user to retry here wastes their time and a
     // request the pacing guard has to pay for.
-    label: "這則貼文沒有可下載的影片",
+    //
+    // The wording changed on 2026-09-11 because the code gained two
+    // producers (P-88): until then only yt-dlp raised it, and only for X,
+    // so "沒有可下載的影片" and "X 的…貼文" were accurate. An Instagram or
+    // Threads text post reaches it now and has no IMAGE either, so the old
+    // label answered a question the user did not ask and named a platform
+    // they were not on. P-74's shape in the copy rather than in the switch.
+    label: "這則貼文沒有可下載的媒體",
     recovery: "remove",
-    hint: "貼文本身沒問題，只是沒有影片；X 的純圖片或純文字貼文會是這樣",
+    hint: "貼文本身沒問題，只是沒有圖片或影片可以下載；Threads、Instagram 的純文字貼文，以及 X 的純圖片或純文字貼文都會是這樣",
   },
   link_expired: {
     label: "連結過期",
     recovery: "reprobe",
-    hint: "重新分析會消耗 1 個配額單位",
+    cost: "重新分析會消耗 1 個配額單位",
   },
   budget_exhausted: { label: "等待配額", recovery: "wait" },
   rate_limited: {
@@ -74,7 +93,7 @@ export const ERROR_PRESENTATION: Record<string, ErrorPresentation> = {
   media_transfer_failed: {
     label: "下載失敗",
     recovery: "retry",
-    hint: "會自已下載的位元組續傳",
+    hint: "重試會從已下載的位元組續傳，不會從頭再來",
   },
   platform_transfer_blocked: {
     // Hint corrected 2026-08-19. It used to end "yt-dlp 自己也被同樣擋住",
@@ -83,7 +102,7 @@ export const ERROR_PRESENTATION: Record<string, ErrorPresentation> = {
     // fix was an update. What the code means is only the first clause.
     label: "平台拒絕傳輸",
     recovery: "doctor",
-    hint: "平台給得出畫質清單卻擋下實際下載，重試無效；先到「設定 → 相依工具」確認 yt-dlp 版本",
+    hint: "平台給得出畫質清單卻擋下實際下載，重試無效；先到「設定 → 診斷」確認 yt-dlp 版本",
   },
   path_too_long: {
     label: "路徑過長",
@@ -106,21 +125,6 @@ export const ERROR_PRESENTATION: Record<string, ErrorPresentation> = {
     recovery: "none",
     hint: "換一段時間範圍，或確認字幕來源選對了",
   },
-  tidy_refused: {
-    // 整理版寫檔前會自證：刪掉的放回去必須逐字重建原稿。走到這裡代表
-    // 對不起來，所以什麼都沒寫——原稿一定是完好的，而這句話要先講。
-    label: "整理版沒有寫出來，原稿沒有動到",
-    recovery: "none",
-    hint: "逐字稿在中途被改過的話會這樣。重新讀一次再整理",
-  },
-  refine_refused: {
-    // 同一條規則，但這次是「兩段合起來」沒過：每一段各自都自證成功，
-    // 反過來還原卻回不到原稿。跟 tidy_refused 分開是因為原因不同——
-    // 那個是某一段自己對不起來，這個是組合對不起來。
-    label: "校正＋整理沒有寫出來，原稿沒有動到",
-    recovery: "none",
-    hint: "逐字稿在中途被改過的話會這樣。重新讀一次再做一遍",
-  },
   no_subtitle_pixels_in_band: {
     // The M2 acceptance failure, made presentable: the band was aimed at a
     // video whose captions are a separate track. Recovery is neither retry
@@ -130,42 +134,12 @@ export const ERROR_PRESENTATION: Record<string, ErrorPresentation> = {
     recovery: "none",
     hint: "拖動字幕帶對準畫面上的字，或改用字幕檔／貼文網址當來源",
   },
-  asr_unavailable: {
-    // Not 「失敗」: nothing failed. The engine is a separate install by
-    // design -- it and its model are several GB against a 107 MB app -- so
-    // this is a setup step nobody has done yet.
-    //
-    // The hint used to name `config.json`, `asr.python`, `faster-whisper`
-    // and `mfp doctor` -- four things, none of which is on screen, to fix
-    // one thing that now has a panel. Recovery moved from "doctor" to
-    // "settings" for the same reason: `doctor` REPORTS this, and 設定 is
-    // where it can be repaired.
-    label: "還沒設定語音辨識",
-    recovery: "settings",
-    hint: "只有「聽音檔轉文字」需要它，其他功能都不受影響。到「設定 → 語音辨識」照著上面兩個步驟做一次就好，那裡也寫了引擎和模型要去哪裡拿",
-  },
-  no_captions_available: {
-    // Not a failure of ours and not retryable: this video was never
-    // captioned. The one thing that CAN still work is the other path, so
-    // the hint names it rather than apologising.
-    label: "這支影片沒有字幕軌",
-    recovery: "none",
-    hint: "字幕若是燒在畫面上，改用引用長圖並框選字幕位置",
-  },
   media_tool_failed: {
     label: "影音處理失敗",
     recovery: "retry",
     hint: "ffmpeg 拒絕了這次工作，錯誤資料夾裡有完整訊息",
   },
   path_escape: { label: "輸出路徑不合法", recovery: "settings" },
-  glossary_conflict: {
-    // Not a breakage: the edit was refused because merging two entries into
-    // one is a decision only the user can make. The hint says what to do
-    // instead rather than what went wrong.
-    label: "詞庫裡已經有這個詞",
-    recovery: "none",
-    hint: "要合併兩筆的話，先把其中一筆的錯字搬到另一筆，再刪掉多出來的那筆",
-  },
   chrome_default_profile: {
     label: "Chrome 設定衝突",
     recovery: "doctor",
@@ -179,9 +153,29 @@ export const ERROR_PRESENTATION: Record<string, ErrorPresentation> = {
   usage_error: {
     // Only reachable if something calls the API with a malformed request --
     // the GUI itself should never produce one.
+    //
+    // That sentence was FALSE for a year, and this row was the only error
+    // message a reader could get by mistyping a path in an analysis tool:
+    // 「呼叫端送出了服務無法解讀的參數」 blamed the program for the most
+    // ordinary user typo there is, so people reported a bug instead of
+    // fixing the path (UX walkthrough 2026-09-07, F1). Every "no such file"
+    // now carries `source_not_found` below, and this row is back to
+    // describing only what it was written for.
     label: "請求格式錯誤",
     recovery: "none",
     hint: "呼叫端送出了服務無法解讀的參數",
+  },
+  source_not_found: {
+    // The path was read and is not there. Recovery is "none" because there
+    // is no button this row could offer that helps: the fix is in the field
+    // the user is already looking at, and the hint names the control beside
+    // it rather than a generic 重試.
+    label: "找不到這個檔案",
+    recovery: "none",
+    // The button is called 「選擇檔案…」 in the workspace that takes a path
+    // (F8), and a hint that names a control the reader cannot find is worse
+    // than one that names none.
+    hint: "請確認路徑，或用「選擇檔案…」重選；檔案可能被移走或改名",
   },
   login_wall: { label: "需要登入（本工具不登入）", recovery: "remove" },
   illegal_transition: { label: "狀態不允許這個操作", recovery: "none" },
@@ -213,6 +207,14 @@ export const ERROR_PRESENTATION: Record<string, ErrorPresentation> = {
   forbidden_host: { label: "拒絕：非 loopback 呼叫", recovery: "none" },
   cross_origin_denied: { label: "拒絕：跨站呼叫", recovery: "none" },
 };
+
+/** The sentence a surface with only ONE line to spend should print: the
+ *  hint if there is one, otherwise the cost. A workspace that shows a
+ *  failure as one line must not be the surface that drops 「會消耗 1 個配額
+ *  單位」 -- the queue row renders `cost` in its own right. */
+export function hintOrCost(presented: ErrorPresentation): string | undefined {
+  return presented.hint ?? presented.cost;
+}
 
 export function presentError(errorCode: string | null | undefined): ErrorPresentation {
   if (!errorCode) return { label: "未知錯誤", recovery: "retry" };

@@ -39,7 +39,7 @@ from typing import Any, Iterator, Literal
 from urllib.parse import parse_qs, urlsplit
 from xml.etree import ElementTree
 
-from mfp.errors import UpstreamStructureChange
+from mfp.errors import NoMediaInPost, UpstreamStructureChange
 from mfp.models import ExcludedFormats, MediaItem, Variant
 
 #: Hosts whose assets are never post media (TRAP-3).
@@ -844,26 +844,84 @@ class PostMetadata:
     timestamp: str | None = None
 
 
-def find_post_node(payload: Any) -> dict[str, Any] | None:
-    """The node the media came from -- `find_media_nodes`' own anchor.
+#: `<link rel="canonical">`, and `og:url` behind it. The page's own answer to
+#: "which post is this", and the only one here that does not go through a
+#: media node.
+_CANONICAL_TAG_RE = re.compile(r"""<link\b[^>]*\brel=["']?canonical["'\s>][^>]*>""", re.I)
+_OG_URL_TAG_RE = re.compile(r"""<meta\b[^>]*\bproperty=["']og:url["'][^>]*>""", re.I)
+_HREF_RE = re.compile(r"""\bhref=["']([^"']+)["']""", re.I)
+_CONTENT_RE = re.compile(r"""\bcontent=["']([^"']+)["']""", re.I)
 
-    Two rejected alternatives, both measured on the real fixtures
-    (2026-08-17):
+#: The post code inside a canonical URL. `/share/<code>/` is deliberately
+#: absent: a share link is the thing being resolved, so accepting it here
+#: would hand back the provisional id we came in with.
+_CANONICAL_CODE_RE = re.compile(r"/(?:p|reel|reels|tv|post)/([A-Za-z0-9_-]+)")
+
+
+def canonical_post_code(html: str) -> str | None:
+    """The post the page says it is about, or None if it does not say.
+
+    **This is not the Open Graph fallback the user ruled out** (Q2,
+    2026-08-16, restated in the adapter's own module docstring). That ruling
+    is about `og:image` as a MEDIA SOURCE -- handing back a preview-grade
+    thumbnail and reporting success. This reads IDENTITY and never a media
+    URL; media still comes only from the payload, and a page that carries no
+    canonical loses nothing, because every caller falls back to what it did
+    before.
+
+    Measured 2026-09-11 on all four raw captures -- two Threads (one of them
+    a `/share/` link, one of them text-only) and two Instagram (one carousel,
+    one reel): present on 4/4, and on 4/4 it names the same post the media
+    anchor picks. It is also what resolves a share code without a media node
+    to anchor to: the three-part fixture's `/share/<code>/` page canonicalises
+    to `@<author>/post/<post code>`, a code that appears nowhere else on it.
+    """
+    for tag_re, value_re in ((_CANONICAL_TAG_RE, _HREF_RE), (_OG_URL_TAG_RE, _CONTENT_RE)):
+        for tag in tag_re.findall(html):
+            value = value_re.search(tag)
+            if not value:
+                continue
+            code = _CANONICAL_CODE_RE.search(value.group(1))
+            if code:
+                return code.group(1)
+    return None
+
+
+def find_post_node(payload: Any, *, code: str | None = None) -> dict[str, Any] | None:
+    """The node this page is about, by identity when the page named one.
+
+    Two alternatives were rejected here on 2026-08-17, both measured on the
+    real fixtures, and NEITHER of them is what `code=` does:
 
     * *Match the shortcode.* A captured Instagram page carries 20 distinct
       `code` values, and the first node bearing the one we asked for is a
-      lightweight reference with no `taken_at` and no `user`. Matching it
-      returned nothing on both Instagram pages.
+      lightweight reference with no `taken_at` and no `user`.
     * *Take the first node carrying `taken_at`.* The carousel page has 8 of
       them and the Threads page 37 -- related posts, recommendations. That
       does not fail, it silently files the download under a stranger's name
       and date, which is worse.
 
-    Anchoring to the media node makes the metadata and the media
-    structurally incapable of describing different posts. It is also what
-    makes Threads work: its share code (`BAVhpgxAWW`) is not the `code` on
-    the node it resolves to (`Dbo3FLAk5Zi`).
+    Each fails for the reason the other would have fixed: the first has
+    identity and no fullness test, the second has a fullness test and no
+    identity. `code=` requires BOTH -- the code the page canonicalised to,
+    on a node that carries `taken_at`. Measured 2026-09-11: on the two
+    Instagram captures exactly three nodes carry the right `code`, of which
+    the two lightweight ones have no `taken_at`, so the conjunction picks
+    one node and it is the right one; on both Threads captures every node
+    bearing the code is a full one.
+
+    Without a `code` this is the media anchor exactly as it was, and that is
+    the fallback whenever the page names no post. The media anchor cannot be
+    the primary any more because it answers "which post is this" with "the
+    first one that has pictures" -- fine for a post that HAS pictures, luck
+    for one that does not, and the whole reason a text-only post was
+    reported as a parser failure (P-88).
     """
+    if code:
+        for node in walk_objects(payload):
+            if node.get("code") == code and node.get("taken_at"):
+                return node
+        return None
     for node in walk_objects(payload):
         carousel = node.get("carousel_media")
         if isinstance(carousel, list) and carousel:
@@ -875,13 +933,39 @@ def find_post_node(payload: Any) -> dict[str, Any] | None:
     return None
 
 
-def post_metadata(html: str) -> PostMetadata:
-    """Pull the post-level fields off the node the media came from."""
-    node: dict[str, Any] | None = None
+def locate_post_node(html: str) -> dict[str, Any] | None:
+    """`find_post_node` over a whole page: identity first, media anchor after.
+
+    Two passes over every payload rather than one pass that falls back per
+    payload. A page whose first payload holds a recommendation with pictures
+    and whose second holds the post would otherwise answer with the
+    recommendation -- the identity pass has to lose across the WHOLE page
+    before the media anchor is allowed to speak.
+    """
+    code = canonical_post_code(html)
+    if code:
+        for payload in iter_script_payloads(html):
+            node = find_post_node(payload, code=code)
+            if node is not None:
+                return node
     for payload in iter_script_payloads(html):
         node = find_post_node(payload)
         if node is not None:
-            break
+            return node
+    return None
+
+
+def post_metadata(html: str) -> PostMetadata:
+    """Pull the post-level fields off the node the page is about.
+
+    Measured 2026-09-11 across all four raw captures: identical `code`,
+    `author` and caption digest to the media-anchored answer this used to
+    give, so nothing changes for a post that has media. What changes is a
+    post that does not -- that answer used to be decided by whichever media
+    node came first in walk order, which on a text-only Threads post was the
+    author's avatar and happened to be right.
+    """
+    node = locate_post_node(html)
 
     if node is None:
         return PostMetadata()
@@ -912,20 +996,338 @@ def post_metadata(html: str) -> PostMetadata:
     )
 
 
-def find_media_nodes(payload: Any) -> list[dict[str, Any]]:
+def _offers_media(node: dict[str, Any]) -> bool:
+    """Does this post put any media on the table -- usable or not.
+
+    The question `extract_post_or_raise` needs in order to stop conflating
+    "this post has nothing" with "this post has things we could not use",
+    and it is answered on STRUCTURE. The key's presence is not the answer:
+    measured 2026-09-11, a Threads text post carries
+    `image_versions2 == {"candidates": []}` -- the key is there, truthy as a
+    dict, and offers nothing. Reading the candidate LIST is what separates it
+    from a page whose candidates exist and are all mangled (TRAP-4).
+    """
+    carousel = node.get("carousel_media")
+    if isinstance(carousel, list) and carousel:
+        return True
+    if node.get("video_versions"):
+        return True
+    images = node.get("image_versions2")
+    if isinstance(images, dict):
+        candidates = images.get("candidates")
+        return isinstance(candidates, list) and bool(candidates)
+    return bool(images)
+
+
+def _is_foreign(node: dict[str, Any], code: str | None) -> bool:
+    """True when this node states it belongs to a DIFFERENT post.
+
+    Only a stated disagreement counts. A node with no `code` of its own --
+    a nested rendition container -- is not foreign, it is unlabelled, and
+    rejecting those would trade a silent wrong answer for a silent missing
+    one.
+
+    Note what this does NOT settle: measured 2026-09-11, a carousel child on
+    Instagram carries its own distinct `code` (the seven-slide carousel
+    fixture's slides each have a code of their own), so every slide of an ordinary post looks
+    foreign by this test. `walk_own_objects` is what makes that safe -- a
+    child reached from INSIDE our post is never asked the question.
+    """
+    own = node.get("code")
+    return bool(code and isinstance(own, str) and own and own != code)
+
+
+def walk_own_objects(payload: Any, code: str | None) -> Iterator[dict[str, Any]]:
+    """`walk_objects`, but a foreign post's subtree is not entered.
+
+    Pruning rather than filtering, and the difference is a defect: skipping
+    a foreign carousel CONTAINER while still walking into it leaves its
+    children reachable, and the children carry no `code` to be rejected by
+    -- so the next loop picks one up and the post that was just refused
+    supplies the media anyway. Caught by
+    `test_a_carousel_belonging_to_another_post_is_skipped` before it shipped,
+    which is the only reason it is a comment and not a fourth pitfall.
+    """
+    if isinstance(payload, dict):
+        if _is_foreign(payload, code):
+            return
+        yield payload
+        for value in payload.values():
+            yield from walk_own_objects(value, code)
+    elif isinstance(payload, list):
+        for value in payload:
+            yield from walk_own_objects(value, code)
+
+
+@dataclass(frozen=True)
+class ChainNode:
+    """One post in the author's own continuation chain, as read off the page."""
+
+    code: str
+    taken_at: int
+    text: str | None
+    node: dict[str, Any]
+
+
+def _author_of(node: dict[str, Any]) -> str | None:
+    owner = node.get("user") or node.get("owner")
+    return owner.get("username") if isinstance(owner, dict) else None
+
+
+def _caption_text(node: dict[str, Any]) -> str | None:
+    caption = node.get("caption")
+    if isinstance(caption, dict) and isinstance(caption.get("text"), str):
+        return caption["text"]
+    return caption if isinstance(caption, str) else None
+
+
+def author_chain(html: str) -> list[ChainNode]:
+    """The post, then every later post by the SAME author replying to itself.
+
+    `[0]` is the post the page canonicalises to. After it, in `taken_at`
+    order, every node whose author is that same author and whose
+    `text_post_app_info.reply_to_author` names that same author. Nobody
+    else's replies, ever (user ruling, 2026-09-11) -- and the author's own
+    answers to OTHER people are excluded by the same test, because those
+    carry the commenter's handle in `reply_to_author`.
+
+    Measured 2026-09-11, and every part of the rule is a field rather than a
+    guess:
+
+    * the three-part Threads fixture: chain of 3, at +0s, +3s, +5s -- the
+      1/3, 2/3, 3/3 the user asked about, recovered exactly.
+    * the Threads share-link fixture: chain of 4. Two continuations at +3s
+      and +4s, then an afterthought at +6,932s. **All four are returned.**
+      Dropping the fourth would take a threshold nothing has measured.
+    * `taken_at` was present and unique on every node of both chains, so the
+      ordering needs no tie-break. If ties ever appear, `code` is the stable
+      secondary key rather than payload order, which is not stable at all.
+
+    Returns `[]` when the page names no post -- never a partial answer built
+    on a guessed anchor.
+    """
+    code = canonical_post_code(html)
+    root = locate_post_node(html)
+    if root is None:
+        return []
+    root_code = root.get("code") if isinstance(root.get("code"), str) else code
+    if not isinstance(root_code, str) or not root_code:
+        return []
+    author = _author_of(root)
+
+    found: dict[str, ChainNode] = {}
+    for payload in iter_script_payloads(html):
+        for node in walk_objects(payload):
+            own = node.get("code")
+            taken_at = _int_or_none(node.get("taken_at"))
+            if not isinstance(own, str) or not own or not taken_at:
+                continue
+            if own in found:
+                continue
+            if own == root_code:
+                found[own] = ChainNode(own, taken_at, _caption_text(node), node)
+                continue
+            if author is None or _author_of(node) != author:
+                continue
+            info = node.get("text_post_app_info")
+            if not isinstance(info, dict) or not info.get("is_reply"):
+                continue
+            replied_to = info.get("reply_to_author")
+            if isinstance(replied_to, dict):
+                replied_to = replied_to.get("username")
+            if replied_to != author:
+                continue
+            found[own] = ChainNode(own, taken_at, _caption_text(node), node)
+
+    if root_code not in found:
+        return []
+    # Ties are real, and `code` alone broke them wrongly. Measured 2026-09-22
+    # on the P-93 text-only fixture: the continuation was posted in the SAME second as the
+    # post, and its code sorts first, so the reply became part 1 and the post
+    # part 2. The root wins a tie by definition; among the rest `pk` (the
+    # numeric media id, which grows with time below the one-second
+    # resolution of `taken_at`) orders them, and `code` stays as the last
+    # stable key for a node without one.
+    ordered = sorted(
+        found.values(),
+        key=lambda item: (
+            item.taken_at,
+            item.code != root_code,
+            _int_or_none(item.node.get("pk")) or 0,
+            item.code,
+        ),
+    )
+    # The root anchors the chain even if some node somehow predates it; a
+    # "continuation" that came BEFORE the post is not a continuation, and
+    # silently reordering around it would invent a reading order.
+    return [item for item in ordered if item.taken_at >= found[root_code].taken_at]
+
+
+def reply_counts(html: str) -> tuple[int | None, int | None]:
+    """`(stated, seen)` -- what the platform claims against what it shipped.
+
+    Never derived from one another. Measured 2026-09-11: the Threads
+    share-link fixture states
+    41 direct replies and the payload carries 28 reply nodes, so a chain
+    assembled from this page is assembled from a PAGE of replies. Reporting
+    only what we found would let a partial answer look complete, which is the
+    class of failure this module exists to refuse.
+    """
+    root = locate_post_node(html)
+    stated = None
+    if root is not None:
+        info = root.get("text_post_app_info")
+        if isinstance(info, dict):
+            stated = _int_or_none(info.get("direct_reply_count"))
+    seen = 0
+    counted: set[str] = set()
+    for payload in iter_script_payloads(html):
+        for node in walk_objects(payload):
+            own = node.get("code")
+            info = node.get("text_post_app_info")
+            if not isinstance(own, str) or own in counted:
+                continue
+            if isinstance(info, dict) and info.get("is_reply"):
+                counted.add(own)
+                seen += 1
+    return stated, (seen if (stated is not None or seen) else None)
+
+
+#: Meta's click-through redirectors. The target rides in `u`; `e` is a
+#: per-viewer tracking token and is dropped with the wrapper.
+_LINK_SHIMS = frozenset({"l.threads.com", "l.threads.net", "l.instagram.com"})
+
+
+def unshim_link(url: str) -> str | None:
+    """`https://l.threads.com/?u=<encoded>&e=...` -> the encoded target.
+
+    A URL that is not a shim comes back unchanged. What comes back is always
+    http(s) or None: the target is author-supplied text, and a `javascript:`
+    or `file:` scheme is not a link anybody should be handed.
+    """
+    split = urlsplit(url)
+    if (split.hostname or "").lower() in _LINK_SHIMS:
+        targets = parse_qs(split.query).get("u") or []
+        if not targets:
+            return None
+        url = targets[0]
+        split = urlsplit(url)
+    if split.scheme not in ("http", "https") or not split.hostname:
+        return None
+    return url
+
+
+def _node_links(node: dict[str, Any]) -> list[str]:
+    """The outbound links one post carries, in reading order.
+
+    Two places, both fields: the inline `link` fragments of the text, and the
+    link-preview card (one per post on Threads). The card's URL is the
+    `l.threads.com` shim; the fragment's `uri` is already the target.
+    """
+    info = node.get("text_post_app_info")
+    if not isinstance(info, dict):
+        return []
+    raw: list[str] = []
+    fragments = (info.get("text_fragments") or {}).get("fragments")
+    for fragment in fragments if isinstance(fragments, list) else []:
+        if not isinstance(fragment, dict) or fragment.get("fragment_type") != "link":
+            continue
+        link = fragment.get("link_fragment")
+        if isinstance(link, dict) and isinstance(link.get("uri"), str):
+            raw.append(link["uri"])
+    card = info.get("link_preview_attachment")
+    if isinstance(card, dict) and isinstance(card.get("url"), str):
+        raw.append(card["url"])
+    return [target for target in map(unshim_link, raw) if target]
+
+
+def outbound_links(html: str) -> list[str]:
+    """Every link the AUTHOR put in the post or its continuation, decoded.
+
+    Scoped exactly like `author_chain`, and for its reason: a link in someone
+    else's reply is their text, not the post's (user ruling, 2026-09-11).
+    First occurrence wins the position; a card that repeats an inline link
+    does not list it twice. Measured 2026-09-22 on the P-93 fixture: five
+    GitHub repositories across the post and one continuation, two of them
+    ALSO carried as preview cards behind `l.threads.com`.
+    """
+    chain = author_chain(html)
+    if chain:
+        nodes = [item.node for item in chain]
+    else:
+        root = locate_post_node(html)
+        nodes = [root] if root is not None else []
+    seen: dict[str, None] = {}
+    for node in nodes:
+        for target in _node_links(node):
+            seen.setdefault(target, None)
+    return list(seen)
+
+
+def segment_media_nodes(chain_node: ChainNode) -> list[dict[str, Any]]:
+    """A continuation post's own media, scoped to that post.
+
+    Needed because a continuation carries a DIFFERENT `code`, so P-88's
+    pruning refuses its media by construction -- correctly, for
+    `Manifest.items` meaning "this post". Fetching it is an explicit opt-in
+    (user ruling, 2026-09-11: 要抓續圖), and the scope is this node's own
+    subtree with its own code, never the page.
+
+    Neither measured capture has a continuation carrying media, so this path
+    is UNPROVEN against a real page. It is written to the same shape
+    `find_media_nodes` reads and it fails closed -- an empty list, which
+    renders as a text-only segment -- rather than reaching outward for
+    something that looks like media.
+    """
+    node = chain_node.node
+    carousel = node.get("carousel_media")
+    if isinstance(carousel, list) and carousel:
+        return [child for child in carousel if isinstance(child, dict)]
+    for key in ("video_versions", "image_versions2"):
+        if node.get(key):
+            return [node] if _offers_media(node) else []
+    return []
+
+
+def find_media_nodes(payload: Any, *, code: str | None = None) -> list[dict[str, Any]]:
     """Locate media nodes by key presence, in the §5.4 step-3 order.
 
     Carousel first: a carousel container ALSO carries the child's keys at the
     top level on some payload shapes, so checking `video_versions` first
     would return one item for a thirteen-item post.
+
+    `code` is the post the page canonicalised to, and a node claiming a
+    different one is skipped. **This is not a refinement, it is a defect
+    fix** (P-88). Without it "the post's media" means "the first media
+    anywhere on the page", and a Threads page renders other people's posts
+    as recommendations: measured 2026-09-11, the committed Threads share-link
+    capture is TEXT-ONLY -- `media_type=19`,
+    `image_versions2.candidates == []`, no video, no carousel, on all three
+    of its nodes -- and this function returned a recommended post's video
+    (another account entirely) for it. `fetch` downloaded a stranger's video,
+    filed it under the author's name and date, and reported success. That is
+    TRAP-4's class, arrived at from the other direction, and the suite
+    asserted it as correct for three weeks.
+
+    On both Instagram captures the media node carries the post's OWN code,
+    so this confirms them rather than merely sparing them (7 -> 7 carousel
+    images, 1 -> 1 reel video, byte-identical URLs).
+
+    **Known limit, unmeasured:** a repost or quote-post whose media node
+    carries the ORIGINAL post's code would be skipped here and the post
+    reported as having nothing to download. There is no repost in the
+    fixtures to measure it on. The trade is deliberate and matches the Q2
+    ruling this module is organised around -- a loud refusal beats a
+    plausible wrong file -- but it is a guess about reposts, not a
+    measurement, and the first repost anyone runs is the test.
     """
-    for node in walk_objects(payload):
+    for node in walk_own_objects(payload, code):
         carousel = node.get("carousel_media")
         if isinstance(carousel, list) and carousel:
             return [child for child in carousel if isinstance(child, dict)]
 
     for key in ("video_versions", "image_versions2"):
-        for node in walk_objects(payload):
+        for node in walk_own_objects(payload, code):
             if node.get(key):
                 return [node]
     return []
@@ -983,8 +1385,9 @@ def extract_post(html: str) -> ExtractedPost:
     caller decides whether empty is a structure change, because only it knows
     whether the page actually loaded (see `extract_post_or_raise`).
     """
+    code = canonical_post_code(html)
     for payload in iter_script_payloads(html):
-        nodes = find_media_nodes(payload)
+        nodes = find_media_nodes(payload, code=code)
         if not nodes:
             continue
         built = [_build_item(node, index) for index, node in enumerate(nodes)]
@@ -1005,19 +1408,70 @@ def extract_items(html: str) -> list[MediaItem]:
 
 
 def extract_post_or_raise(html: str, *, shortcode: str) -> ExtractedPost:
-    """§5.4 step 9: never return empty silently.
+    """§5.4 step 9: never return empty silently -- and never guess WHY.
 
-    A page that loaded and names the post but yields no media is the signal
-    that the payload shape moved. Reporting it as "no media" would send the
-    user hunting for a problem with their link.
+    This was a two-way switch whose `else` asserted a cause (P-88, the same
+    shape D-155 found in `YtDlpAdapter.probe` and `_reject_login_wall` had
+    already been split out of once). Zero media meant "the payload structure
+    changed", exit 5, which the agent surface documents as *needs a code
+    fix*. An ordinary text-only Threads post is zero media. Measured
+    2026-09-11 on the three-part fixture's `/share/` link: 803,690 bytes of a page
+    that loaded perfectly, whose caption this module reads in full, reported
+    as a parser failure -- and the user is told their link is the problem.
+
+    Three states, and the difference between the first two is now something
+    the program DETERMINES rather than infers from an absence:
+
+    ==================  ==============  ========  ==========================
+    post node located   offers media    usable    verdict
+    ==================  ==============  ========  ==========================
+    no                  --              --        `upstream_structure_change`
+    yes                 yes             none      `upstream_structure_change`
+    yes                 no              --        `no_media_in_post`
+    yes                 yes             some      ok
+    ==================  ==============  ========  ==========================
+
+    The middle two rows are the pair that used to be one row, and the thing
+    that separates them is `_offers_media` -- a structural reading, never
+    prose. Measured 2026-09-11: a Threads text post carries
+    `image_versions2 == {"candidates": []}`, an offer of nothing, while the
+    TRAP-4 page carries candidates whose signatures are mangled. Testing the
+    KEY's presence cannot tell those apart, because both have the key.
+
+    `no_media_in_post` is not new: O-10 split it off in D-75 for exactly
+    this defect on an X post and closed only the yt-dlp instance, recording
+    that "O-10 is not closed". This is the remaining instance, and the code
+    is already wired through `errors.py`, the HTTP status table and the
+    GUI's recovery ladder, so it travels without a new row anywhere.
+
+    The residual case still raises `UpstreamStructureChange` and now MEANS
+    it: no canonical link, no media node, nothing on the page to point at.
     """
     post = extract_post(html)
     if post.items:
         return post
-    raise UpstreamStructureChange(
-        f"page for {shortcode} loaded but no media nodes were found. Either the "
-        "payload structure changed, or every media URL failed the oh=/oe= "
-        "signature check (TRAP-4).",
+
+    node = locate_post_node(html)
+    if node is None:
+        raise UpstreamStructureChange(
+            f"page for {shortcode} loaded but the post could not be located on "
+            "it at all -- no canonical link naming a post, and no media node to "
+            "fall back to. The payload structure has moved.",
+            shortcode=shortcode,
+            html_length=len(html),
+        )
+    if _offers_media(node):
+        raise UpstreamStructureChange(
+            f"the post for {shortcode} was located and OFFERS media, but not one "
+            "candidate survived: either the payload structure changed, or every "
+            "media URL failed the oh=/oe= signature check (TRAP-4).",
+            shortcode=shortcode,
+            html_length=len(html),
+        )
+    raise NoMediaInPost(
+        f"the post for {shortcode} was read and has nothing to download. An "
+        "ordinary text-only post, not a parser failure: the page loaded, the "
+        "post was located on it, and it offers no image, video or carousel.",
         shortcode=shortcode,
         html_length=len(html),
     )
@@ -1039,10 +1493,18 @@ __all__ = [
     "REQUIRED_SIGNATURE_PARAMS",
     "UI_ASSET_HOSTS",
     "build_item",
+    "ChainNode",
     "PostMetadata",
+    "author_chain",
+    "canonical_post_code",
+    "outbound_links",
+    "reply_counts",
+    "unshim_link",
+    "segment_media_nodes",
     "dash_audio_variant",
     "dash_variants",
     "find_post_node",
+    "locate_post_node",
     "post_metadata",
     "expires_at_from_url",
     "ExtractedPost",

@@ -1,0 +1,90 @@
+<html lang="zh-Hant" data-page-class="diagram"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>下載工具與逐字稿工具的分界 — 負責人視角</title>
+<style>
+:root{--ink:#1b1d21;--dim:#585e66;--faint:#8a9099;--line:#d9dde2;--bg:#fbfbfc;--card:#fff;
+--stay:#e7f0ea;--stayb:#3f7d54;--go:#fdeee3;--gob:#c2622a;--sh:#eceef1;--shb:#7d848d;
+--hot:#fdf3d8;--hotb:#a4832a;--okb:#3f7d54;--nob:#b4483c;--midb:#a4832a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+font:15px/1.72 "Microsoft JhengHei","PingFang TC",system-ui,sans-serif}
+main{width:min(1580px,95vw);margin:0 auto;padding:26px 0 60px}
+h1{font-size:25px;margin:0 0 6px} h2{font-size:19px;margin:34px 0 12px}
+.lead{color:var(--dim);margin:0;font-size:16px}
+.prov{background:#f1f3f5;border-left:3px solid var(--shb);padding:11px 16px;margin:16px 0 22px;
+font-size:13px;color:var(--dim);border-radius:0 6px 6px 0;line-height:1.85}
+.prov code{background:#e3e6e9;padding:1px 5px;border-radius:4px;font-size:12px}
+.figure{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+svg{display:block;width:100%;height:auto}
+.node rect{stroke-width:1.6}
+.n-stay rect{fill:var(--stay);stroke:var(--stayb)}
+.n-go rect{fill:var(--go);stroke:var(--gob);stroke-dasharray:6 4}
+.n-shared rect{fill:var(--sh);stroke:var(--shb);stroke-dasharray:2 3}
+.nn{font:600 15px "Microsoft JhengHei",sans-serif;fill:var(--ink);text-anchor:middle}
+.nr{font:12.5px "Microsoft JhengHei",sans-serif;fill:var(--dim);text-anchor:middle}
+.lg{font:12.5px "Microsoft JhengHei",sans-serif;fill:var(--dim)}
+.edge{fill:none;stroke:#6b7280;stroke-width:1.8} .edge.dash{stroke-dasharray:6 5}
+.el{font:12px "Microsoft JhengHei",sans-serif;fill:var(--dim);text-anchor:middle}
+.seam{stroke:#9aa1aa;stroke-width:2.5;stroke-dasharray:9 6}
+.sl{font:600 13px "Microsoft JhengHei",sans-serif;fill:var(--stayb)}
+.sr{font:600 13px "Microsoft JhengHei",sans-serif;fill:var(--gob)}
+.mk circle{fill:var(--hot);stroke:var(--hotb);stroke-width:1.6}
+.mk text{font:600 12px sans-serif;fill:#7d6218;text-anchor:middle}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:18px}
+.d{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:15px 19px}
+.d h3{margin:0 0 6px;font-size:15px} .d p{margin:0;color:var(--dim);font-size:14px}
+ul.notes{list-style:none;margin:20px 0 0;padding:15px 20px;background:#fffdf6;
+border:1px solid var(--hotb);border-radius:10px;font-size:14px}
+ul.notes li{margin:9px 0;padding-left:30px;position:relative}
+ul.notes .b{position:absolute;left:0;top:1px;width:20px;height:20px;border-radius:50%;
+background:var(--hot);border:1.5px solid var(--hotb);color:#7d6218;font:600 12px sans-serif;
+text-align:center;line-height:17px}
+ul.notes .w{color:var(--dim)}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);
+border-radius:10px;overflow:hidden;font-size:13.5px}
+th,td{text-align:left;padding:9px 14px;border-bottom:1px solid #eef0f2;vertical-align:top}
+th{background:#f2f4f6;font-size:12.5px;color:var(--dim);font-weight:600}
+tr:last-child td{border-bottom:none} td:first-child{font-weight:600;width:22%}
+.pill{display:inline-block;padding:1px 9px;border-radius:11px;font-size:12px;white-space:nowrap;
+border:1px solid currentColor}
+tr.s-ok .pill{color:var(--okb)} tr.s-no .pill{color:var(--nob)} tr.s-mid .pill{color:var(--midb)}
+tr.s-ok td:nth-child(2),tr.s-no td:nth-child(2),tr.s-mid td:nth-child(2){width:82px}
+tr td:last-child{color:var(--dim)}
+.two{display:grid;grid-template-columns:1.15fr 1fr;gap:20px;align-items:start}
+@media (max-width:1000px){.two{grid-template-columns:1fr}}
+.foot{margin-top:20px;color:var(--faint);font-size:12.5px;line-height:1.8}
+</style></head><body><main>
+<h1>下載工具與逐字稿工具的分界</h1>
+<p class="lead">一張圖回答一件事：這個產品現在有幾塊、哪幾塊要搬走、搬之前卡在哪裡。</p>
+
+<div class="prov">
+這是工程版 <code>index.html</code> 的<b>負責人視角版本</b>，不是它的取代品。
+工程版有完整的模組檔名、行數與每一格的證據來源；這一份把它們收成能做決定的粒度，
+沒有新增任何工程版沒有的事實。<br>
+狀態日期 <b>2026-09-09</b>　·　對應版本 <code>ec6d581</code>　·　工程版指紋
+<code>9a8ec49cd23f</code>　·　<b>工程版重新產生時這一份要跟著重畫</b>——否則它會安靜地說謊。
+</div>
+
+<div class="figure"><svg viewBox="0 0 1340 742" role="img" aria-label="下載工具與逐字稿工具的分界" xmlns="http://www.w3.org/2000/svg"><defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/></marker></defs><!-- cols {'c1': 140, 'c2': 400, 'c3': 660, 'c4': 920, 'c5': 1180} rows {'r1': 180, 'r2': 320, 'r3': 460, 'r4': 600} node 200x76 seam 790.0 --><line class="seam" x1="790.0" y1="100" x2="790.0" y2="704"/><text class="sl" x="776.0" y="92" text-anchor="end">← 留在下載工具</text><text class="sr" x="804.0" y="92">搬去新的逐字稿工具 →</text><path class="edge" d="M140,218.0 L140,282.0" marker-end="url(#ar)"/><path class="edge" d="M240.0,320 L300.0,320" marker-end="url(#ar)"/><path class="edge" d="M500.0,320 L560.0,320" marker-end="url(#ar)"/><path class="edge" d="M370,358.0 L370,422.0" marker-end="url(#ar)"/><path class="edge" d="M660,358.0 L660,398.0 L430,398.0 L430,422.0" marker-end="url(#ar)"/><path class="edge" d="M660,218.0 L660,250 L460,250 L460,282.0" marker-end="url(#ar)"/><path class="edge" d="M300.0,460 L240.0,460" marker-end="url(#ar)"/><path class="edge" d="M400,498.0 L400,530.0 L140,530.0 L140,562.0" marker-end="url(#ar)"/><path class="edge" d="M500.0,460 L820.0,460" marker-end="url(#ar)"/><text class="el" x="660.0" y="451">音檔</text><path class="edge" d="M920,218.0 L920,422.0" marker-end="url(#ar)"/><path class="edge" d="M1020.0,460 L1080.0,460" marker-end="url(#ar)"/><path class="edge" d="M1180,498.0 L1180,562.0" marker-end="url(#ar)"/><path class="edge" d="M920,562.0 L920,498.0" marker-end="url(#ar)"/><path class="edge dash" d="M1020.0,600 L1080.0,600" marker-end="url(#ar)"/><path class="edge" d="M1180,638.0 L1180,690 L400,690 L400,498.0" marker-end="url(#ar)"/><text class="el" x="790.0" y="681">成品寫回</text><g class="node n-stay"><rect x="40.0" y="142.0" width="200" height="76" rx="8"/><text class="nn" x="140" y="174">操作介面</text><text class="nr" x="140" y="198">命令列與視窗，人從這裡開始</text></g><g class="node n-stay"><rect x="560.0" y="142.0" width="200" height="76" rx="8"/><text class="nn" x="660" y="174">代理人介面</text><text class="nr" x="660" y="198">讓 AI 助理直接驅動這個工具</text></g><g class="node n-go"><rect x="820.0" y="142.0" width="200" height="76" rx="8"/><text class="nn" x="920" y="174">逐字稿工作區</text><text class="nr" x="920" y="198">人在這裡讀稿、改稿</text></g><g class="node n-stay"><rect x="40.0" y="282.0" width="200" height="76" rx="8"/><text class="nn" x="140" y="314">一個公開連結</text><text class="nr" x="140" y="338">整件事的入口</text></g><g class="node n-stay"><rect x="300.0" y="282.0" width="200" height="76" rx="8"/><text class="nn" x="400" y="314">取得素材</text><text class="nr" x="400" y="338">談速率、抓影片與圖片</text></g><g class="node n-stay"><rect x="560.0" y="282.0" width="200" height="76" rx="8"/><text class="nn" x="660" y="314">平台自帶字幕</text><text class="nr" x="660" y="338">平台已經有的就直接拿</text></g><g class="mk"><circle cx="746.0" cy="296.0" r="10"/><text x="746.0" y="300.5">2</text></g><g class="node n-stay"><rect x="40.0" y="422.0" width="200" height="76" rx="8"/><text class="nn" x="140" y="454">長圖拼接</text><text class="nr" x="140" y="478">把連續截圖接成一張</text></g><g class="node n-stay"><rect x="300.0" y="422.0" width="200" height="76" rx="8"/><text class="nn" x="400" y="454">檔案落地與紀錄</text><text class="nr" x="400" y="478">每個檔去了哪裡、誰要它存在</text></g><g class="mk"><circle cx="486.0" cy="436.0" r="10"/><text x="486.0" y="440.5">1</text></g><g class="node n-go"><rect x="820.0" y="422.0" width="200" height="76" rx="8"/><text class="nn" x="920" y="454">聽寫</text><text class="nr" x="920" y="478">把聲音變成有時間的文字</text></g><g class="node n-go"><rect x="1080.0" y="422.0" width="200" height="76" rx="8"/><text class="nn" x="1180" y="454">品質判定</text><text class="nr" x="1180" y="478">指出稿子哪裡不可信</text></g><g class="node n-stay"><rect x="40.0" y="562.0" width="200" height="76" rx="8"/><text class="nn" x="140" y="594">圖片影片解說</text><text class="nr" x="140" y="618">只開放給代理人，不進畫面</text></g><g class="node n-shared"><rect x="820.0" y="562.0" width="200" height="76" rx="8"/><text class="nn" x="920" y="594">語音引擎與模型</text><text class="nr" x="920" y="618">兩個產品共用的同一份</text></g><g class="node n-go"><rect x="1080.0" y="562.0" width="200" height="76" rx="8"/><text class="nn" x="1180" y="594">清理、校正與翻譯</text><text class="nr" x="1180" y="618">去重複、補術語、換語言</text></g><g class="node n-stay"><rect x="40" y="52" width="22" height="18" rx="4"/></g><text class="lg" x="70" y="66">留在下載工具</text><g class="node n-go"><rect x="240" y="52" width="22" height="18" rx="4"/></g><text class="lg" x="270" y="66">搬去逐字稿工具</text><g class="node n-shared"><rect x="440" y="52" width="22" height="18" rx="4"/></g><text class="lg" x="470" y="66">兩邊共用</text></svg></div>
+<ul class="notes"><li><span class="b">1</span><b>檔案落地與紀錄</b>　runs.py 已裁定拆成兩份（2026-09-09）<br><span class="w">自動檢查判它屬於下載工具，但它的內部形狀整個是逐字稿的，而要走的每一個模組都靠它存檔。抽出之前這一條必須先解決。</span></li><li><span class="b">2</span><b>平台自帶字幕</b>　captions 已經裁定留下（2026-09-08）<br><span class="w">拿平台現成的字幕是「取得」，不是「理解」，所以它留下。旁邊的「品質判定」沒有跟著留——判斷一句話是不是可信，那是理解。</span></li></ul>
+
+<h2>這張圖對管理的四句話</h2>
+<div class="grid2"><div class="d"><h3>現在該怎麼分工</h3><p>兩件事各自成案：下載工具這邊把還欠的收尾，逐字稿工具那邊從頭開一個專案。今天卡住的不是技術，是兩件事擠在同一個資料夾裡，同一天有兩條線在改它。</p></div><div class="d"><h3>搬家有多大</h3><p>要走的是 22 個模組、約 15,569 行——程式 8,043 行、獨立引擎 1,861 行、畫面 4,285 行、接線 1,380 行。這不是一次改版，是一次分家。</p></div><div class="d"><h3>動工前一定要先解決的</h3><p>「檔案落地與紀錄」的歸屬（圖上的 ①）。它是兩邊唯一真正黏在一起的地方，而且自動檢查看不見這件事——機器只看誰呼叫誰，看不見「這個檔案內容整份是逐字稿的形狀」。</p></div><div class="d"><h3>現在能不能用</h3><p>能。聽寫、翻譯、下載都實測可用；引擎與模型（共 4.6 GB）已經搬到中性位置，舊的原型資料夾可以刪。但還有 7 件事沒收尾，列在最後。</p></div></div>
+
+<h2>現在的真實狀況</h2>
+<table><thead><tr><th>項目</th><th>狀態</th><th>憑什麼這樣說</th></tr></thead><tbody><tr class="s-no" data-canon="逐字稿家族已離開 mfp"><td>逐字稿功能已經搬出去</td><td><span class="pill">還沒有</span></td><td>12 個檔全在，0 行移出（wc -l @ ec6d581）</td></tr><tr class="s-no" data-canon="local-transcript-maker repo 已建立"><td>新產品的專案已經開好</td><td><span class="pill">還沒有</span></td><td>D:\AIWork\local-transcript-maker 不存在</td></tr><tr class="s-mid" data-canon="設計文件"><td>設計文件</td><td><span class="pill">一半</span></td><td>CIM v1.0 定稿；PIM v0.1 是 DRAFT，自陳五項骨架缺口（PIM 13）</td></tr><tr class="s-no" data-canon="驗證硬閘（全梯第三階）"><td>設計的正式檢查（動工前的關卡）</td><td><span class="pill">還沒有</span></td><td>未跑。CIM 0.6 裁定不得跳過</td></tr><tr class="s-ok" data-canon="mfp 本體可用"><td>下載工具本體可用</td><td><span class="pill">可用</span></td><td>pytest 2704 passed / 2 skipped</td></tr><tr class="s-ok" data-canon="聽寫與翻譯可用"><td>聽寫與翻譯可用</td><td><span class="pill">可用</span></td><td>asr-status 兩項 [READY]；conformance 14 passed（不用環境變數覆寫）</td></tr><tr class="s-ok" data-canon="引擎與模型已搬到中性位置"><td>引擎與模型已搬到中性位置</td><td><span class="pill">可用</span></td><td>D:\AIWork\_runtimes\，全鏈路無 junction，model.bin SHA256 兩邊相同</td></tr><tr class="s-ok" data-canon="git 乾淨"><td>版本紀錄乾淨</td><td><span class="pill">可用</span></td><td>一條 branch、一棵樹、main == origin/main == ec6d581、工作區 0 變更</td></tr><tr class="s-ok" data-canon="release 是當前的"><td>可安裝的版本是最新的</td><td><span class="pill">可用</span></td><td>1.0.0 建於 110b918，四階段 OK；之後只改過 docs/ references/ .gitignore</td></tr><tr class="s-mid" data-canon="release/ 有殘留"><td>安裝檔資料夾有舊檔殘留</td><td><span class="pill">要注意</span></td><td>9/4 的 0.1.0 一對 exe（各 ~107 MB）還躺在 1.0.0 旁邊</td></tr><tr class="s-ok" data-canon="舊原型可刪"><td>舊的原型資料夾可以刪</td><td><span class="pill">可用</span></td><td>D:\AIWork\Local-AI-Transcriber-Pro 3.5 GB；程式碼在 archive\，權重在 _runtimes\，設定已指過去並實測</td></tr><tr class="s-ok" data-canon="runs.py 的歸屬"><td>「檔案落地與紀錄」該歸哪一邊</td><td><span class="pill">可用</span></td><td>已拆 — runs_transcript.py（見左圖 C1）</td></tr><tr class="s-mid" data-canon="vadSeconds &gt; audioSeconds"><td>聽寫的健康數字算錯了</td><td><span class="pill">要注意</span></td><td>給使用者看的健康數字是錯的（spike-08 五）。屬 mfp，未修</td></tr><tr class="s-mid" data-canon="Z15 欠的人工驗收"><td>字幕抓取還欠一次人工驗收</td><td><span class="pill">要注意</span></td><td>要一支有『人工字幕』的影片，看 kind: captions 而不是 auto-captions</td></tr></tbody></table>
+
+<h2>每一格背後是什麼，以及沒畫進去的</h2>
+<div class="two">
+<table><thead><tr><th>圖上的格子</th><th>實際包含（工程版的名字）</th></tr></thead>
+<tbody><tr><td>操作介面</td><td>cli、serve</td></tr><tr><td>代理人介面</td><td>agent、capabilities</td></tr><tr><td>逐字稿工作區</td><td>transcript-workspace、read-transcript、refine-transcript、translate-transcript、translate-document、setup-asr</td></tr><tr><td>一個公開連結</td><td>inputs、policy、redact</td></tr><tr><td>取得素材</td><td>download、budget、pipeline、toolchain、mediatool</td></tr><tr><td>平台自帶字幕</td><td>captions</td></tr><tr><td>檔案落地與紀錄</td><td>runs、index、naming、winpath、logs</td></tr><tr><td>長圖拼接</td><td>stack</td></tr><tr><td>圖片影片解說</td><td>brief</td></tr><tr><td>聽寫</td><td>asr、asr_models、transcript、runs_transcript、runner.py、translate_runner.py、fetch_model.py</td></tr><tr><td>品質判定</td><td>quality、cues</td></tr><tr><td>清理、校正與翻譯</td><td>correct、tidy、refine、translate、translate_doc</td></tr><tr><td>語音引擎與模型</td><td>_runtimes\asr-py、_runtimes\models\faster-whisper-large-v3、_runtimes\models\nllb-200-distilled-1.3B-ct2-int8</td></tr></tbody></table>
+<table><thead><tr><th>沒畫進圖裡</th><th>為什麼</th></tr></thead>
+<tbody><tr><td>config</td><td>設定與錯誤型別，每一格都會用到；畫出來只會變成連到所有東西的線</td></tr><tr><td>errors</td><td>同上</td></tr><tr><td>models</td><td>同上</td></tr><tr><td>doctor</td><td>診斷指令，不在主流程上</td></tr><tr><td>queue</td><td>排程與行程管理，屬於「怎麼跑」而不是「做什麼」</td></tr><tr><td>capture</td><td>同上</td></tr><tr><td>sidecar</td><td>同上</td></tr><tr><td>routes_transcript.py</td><td>服務層路由，是介面到功能之間的接線，不是獨立的一件事</td></tr><tr><td>routes_asr.py</td><td>同上</td></tr></tbody></table>
+</div>
+<p class="foot">
+左表加右表就是工程版的全部——沒有一個模組憑空消失，也沒有一個方塊是憑空多出來的；
+這件事由 <code>verify_owner.py</code> 每次重畫時強制檢查。<br>
+這一份<b>不帶完整性保證</b>，保證在工程版那邊：這裡只保證畫出來的每一格與每一條線都真的存在，
+沒畫的都在右表點名。
+</p>
+</main></body></html>

@@ -101,7 +101,7 @@ export function handoffText(pkg: BriefPackage, question: string): string {
       "",
       `這篇還有影片 ${pkg.videos.length} 支，已經抓下來了：`,
       ...pkg.videos.map((video) => video.path),
-      "影片沒辦法用看的，請跑 `mfp transcript <路徑>` 讀出裡面說了什麼。",
+      "這個工具不做語音辨識，影片裡說了什麼要另外處理。",
     );
   }
   if (question.trim()) lines.push("", `我想知道：${question.trim()}`);

@@ -34,7 +34,7 @@ import hashlib
 import re
 from dataclasses import dataclass
 
-from mfp.adapters.instagram.extract import extract_items
+from mfp.adapters.instagram.extract import extract_items, locate_post_node
 
 #: JSON keys whose values identify a person or reproduce their words.
 #: `accessibility_caption` is here even though `extract.py` reads it: the
@@ -124,13 +124,39 @@ class RedactionReport:
     #: page -- unchanged being the problem.
     secrets_leaked: int = 0
 
+    #: Whether the post the page canonicalises to can still be located, in
+    #: each copy. The shape check for a page with no media: at zero items
+    #: `items_before == items_after` is `0 == 0` and proves nothing, so
+    #: without this a text-only page had no observable shape at all and was
+    #: refused on that basis (`items_before > 0`, until 2026-09-11). That
+    #: refusal is why no capture of the commonest Threads post -- a text one
+    #: -- has ever been committed, and why the class stayed invisible to the
+    #: suite right up until it produced a stranger's video (P-88).
+    post_located_before: bool = True
+    post_located_after: bool = True
+
     @property
     def preserved(self) -> bool:
-        """Safe to commit: the shape survived AND the identity did not."""
+        """Safe to commit: the shape survived AND the identity did not.
+
+        "The shape" has to mean something at zero items, or the gate is
+        answering a question it cannot see. For a page with media that is the
+        item and variant counts; for a page without, it is whether the post
+        is still findable. Both are the same claim -- the redacted copy
+        extracts what the original did.
+
+        The last clause is the other half and is not symmetry: a page with no
+        items AND no post has nothing for either check to be about, so every
+        equality above holds trivially. Committing that is committing an
+        empty fixture, which passes forever and tests nothing. Something has
+        to be there before "it survived" can be said at all.
+        """
+        observable = self.items_before > 0 or self.post_located_before
         return (
-            self.items_before == self.items_after
+            observable
+            and self.items_before == self.items_after
             and self.variants_before == self.variants_after
-            and self.items_before > 0
+            and self.post_located_before == self.post_located_after
             and self.secrets_leaked == 0
         )
 
@@ -178,13 +204,57 @@ def _placeholder_url(url: str) -> str:
             parts.append(f"{name}={PLACEHOLDER_OE}")
         elif name.endswith("oh"):
             parts.append(f"{name}=00_REDACTED")
+        elif name.endswith("stp"):
+            # Kept verbatim, and this is the rule this whole module is built
+            # on rather than an exception to it: `stp` is what the CDN did to
+            # the image -- a crop box in relative coordinates and a resize
+            # token, `c0.140.1122.1122a_dst-jpg_e35_s640x640_tt6` -- and the
+            # extractor READS it (`parse_stp`), to split crops from
+            # renditions and to recover a size the candidate does not
+            # declare. Blanking it to `x` destroyed exactly that: the
+            # committed carousel fixture reports 13 renditions per item where
+            # the page has 6 renditions and 7 crops, and the same page's
+            # candidates carry no `width` at all, so nothing else could tell
+            # them apart. `verify_redaction` did not catch it because at
+            # capture time (2026-08-16) the extractor had no crop split to
+            # lose, and the wrong number has been the pinned expectation
+            # since -- P-76 again, one layer down from where it was found.
+            # Identity: none. A pixel box is not a person.
+            parts.append(pair)
         else:
             parts.append(f"{name}=x")
     return restore(rebuilt) + "?" + separator.join(parts)
 
 
 def redact_html(html: str) -> tuple[str, int, int]:
-    """Return `(redacted, urls_rewritten, values_replaced)`."""
+    """Return `(redacted, urls_rewritten, values_replaced)`.
+
+    **Identity is preserved as a RELATION and destroyed as a value.** Every
+    distinct handle gets its own `[user-N]`; the handle itself never survives.
+    Until 2026-09-11 they all collapsed onto one literal `redacted_user`, and
+    that is not a weaker fixture, it is a fixture that answers a question
+    WRONGLY: `user == reply_to_author` became true for every node on the
+    page, so the committed copy of the Threads share-link fixture reports the author's own
+    continuation chain as **29 posts** where the raw page has 4. A test
+    written against it would have gone green while measuring nothing --
+    a false positive, which is worse than the absence
+    `CLAUDE.md` already warns redacted fixtures for.
+
+    `N` is the ordinal of first appearance, deliberately not a digest of the
+    handle. A digest is what `_placeholder_url` uses and the reason there is
+    diff stability across a re-capture, which matters for a file that gets
+    re-captured. It is the wrong trade here: a handle is a permanent public
+    identifier, so a digest of one is a value anybody holding a guess can
+    confirm, and `count_leaked_secrets` only ever checks signature values --
+    it would not notice. Churn on re-capture is the price and it is cheap.
+
+    The brackets are load-bearing and were `user_N` for an afternoon:
+    Instagram and Threads handles are letters, digits, `.` and `_`, so
+    `user_1` is a handle somebody may actually own -- and `[user-1]` is one
+    nobody can. A placeholder that a real value can equal is a placeholder
+    `collect_identifiers` skips over on the next pass, which is both a leak
+    and the reason `redact_and_verify` stopped being idempotent.
+    """
     urls = 0
 
     def replace_url(match: re.Match[str]) -> str:
@@ -197,9 +267,16 @@ def redact_html(html: str) -> tuple[str, int, int]:
     # Collect identifiers BEFORE blanking them, so they can then be erased
     # everywhere else they appear.
     identifiers = collect_identifiers(redacted)
+    pseudonyms = {value: pseudonym(n) for n, value in enumerate(identifiers, start=1)}
 
     values = 0
+    # The identifier keys are left for the sweep below: blanking them here
+    # would erase the handle before it could be given a pseudonym, and the
+    # relation between two nodes with the same author would go with it.
     for key in REDACTED_KEYS:
+        if key in IDENTIFIER_KEYS:
+            continue
+
         def replace_value(match: re.Match[str]) -> str:
             nonlocal values
             values += 1
@@ -207,22 +284,79 @@ def redact_html(html: str) -> tuple[str, int, int]:
 
         redacted = _key_value_re(key).sub(replace_value, redacted)
 
-    for identifier in identifiers:
+    # Longest first. Handles nest -- `bob` is a prefix of `bobby` -- and a
+    # first-appearance order would rewrite the short one inside the long one,
+    # leaving `[user-1]by` on the page: a handle that leaked in pieces and a
+    # relation quietly attached to the wrong person. The NUMBERS still come
+    # from first appearance; only the order of substitution changes.
+    for identifier in sorted(pseudonyms, key=len, reverse=True):
         occurrences = redacted.count(identifier)
         if occurrences:
             values += occurrences
-            redacted = redacted.replace(identifier, "redacted_user")
+            redacted = redacted.replace(identifier, pseudonyms[identifier])
+
+    # Whatever is still standing under an identifier key is blanked, and this
+    # is not belt-and-braces -- it is the only thing covering a name SHORTER
+    # than `MIN_IDENTIFIER_LENGTH`. Such a value cannot be pseudonymised,
+    # because a global replace of `JC` would hit unrelated text, so before
+    # this loop existed a two-letter `full_name` walked straight into git
+    # (measured on both real captures, 2026-09-11: "JC" and "KK"). Skipping
+    # the identifier keys above buys the pseudonym its handle; it does not
+    # buy the value an exemption.
+    for key in IDENTIFIER_KEYS:
+
+        def blank_identity(match: re.Match[str]) -> str:
+            nonlocal values
+            if is_placeholder(match.group(2)) or not match.group(2):
+                return match.group(0)
+            values += 1
+            return f'{match.group(1)}"[redacted]"'
+
+        redacted = _key_value_re(key).sub(blank_identity, redacted)
 
     return redacted, urls, values
 
 
-def collect_identifiers(html: str) -> set[str]:
-    """Handles and names that must not survive anywhere in the fixture."""
-    found: set[str] = set()
+def pseudonym(ordinal: int) -> str:
+    """The stand-in for the `ordinal`-th distinct handle on a page.
+
+    `[` and `]` are not legal in an Instagram or Threads handle, which is the
+    whole reason for the shape: no real value can equal this one, so
+    `is_placeholder` cannot mistake a person for a placeholder or the other
+    way round.
+    """
+    return f"[user-{ordinal}]"
+
+
+#: Every value redaction writes in place of an identity. Anchored, because a
+#: substring match would exempt a handle that merely CONTAINS one.
+_PLACEHOLDER_RE = re.compile(r"^(?:\[redacted\]|\[user-\d+\])$")
+
+
+def is_placeholder(value: str) -> bool:
+    """True for something redaction already wrote. Not an identity."""
+    return _PLACEHOLDER_RE.match(value) is not None
+
+
+def collect_identifiers(html: str) -> list[str]:
+    """Handles and names that must not survive anywhere in the fixture.
+
+    In order of first appearance, and a list rather than a set because the
+    pseudonyms are assigned by position: a set would number them differently
+    on every run and make the fixture's diff meaningless.
+
+    Values redaction itself wrote are skipped, and that is what makes a
+    second pass a no-op rather than a renumbering -- `redact_and_verify` is
+    run on an already-committed fixture every time one is rebuilt from raw.
+    """
+    found: list[str] = []
+    seen: set[str] = set()
     for key in IDENTIFIER_KEYS:
         for _, value in _key_value_re(key).findall(html):
-            if len(value) >= MIN_IDENTIFIER_LENGTH and value != "[redacted]":
-                found.add(value)
+            if len(value) >= MIN_IDENTIFIER_LENGTH and not is_placeholder(value):
+                if value not in seen:
+                    seen.add(value)
+                    found.append(value)
     return found
 
 
@@ -242,6 +376,8 @@ def verify_redaction(original: str, redacted: str) -> RedactionReport:
         variants_before=sum(len(item.variants) for item in before),
         variants_after=sum(len(item.variants) for item in after),
         secrets_leaked=count_leaked_secrets(original, redacted),
+        post_located_before=locate_post_node(original) is not None,
+        post_located_after=locate_post_node(redacted) is not None,
     )
 
 
@@ -279,6 +415,13 @@ def redact_and_verify(html: str) -> tuple[str, RedactionReport]:
         variants_before=report.variants_before,
         variants_after=report.variants_after,
         secrets_leaked=report.secrets_leaked,
+        # Carried, not defaulted. Both fields default to True, so dropping
+        # them here made every report from this function claim a post was
+        # located in both copies -- including the ones where none was. This
+        # is the only path `capture` uses, so the zero-item half of
+        # `preserved` would have been decided by a default (2026-09-11).
+        post_located_before=report.post_located_before,
+        post_located_after=report.post_located_after,
     )
 
 
@@ -288,6 +431,8 @@ __all__ = [
     "RedactionReport",
     "collect_identifiers",
     "count_leaked_secrets",
+    "is_placeholder",
+    "pseudonym",
     "redact_and_verify",
     "redact_html",
     "verify_redaction",

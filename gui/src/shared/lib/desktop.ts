@@ -24,21 +24,9 @@ export interface DesktopApi {
   readonly isDesktop: true;
   openPath(absolutePath: string): Promise<DesktopResult>;
   showInFolder(absolutePath: string): Promise<DesktopResult>;
-  pickVideo(accept?: PickAccept): Promise<{ path: string | null }>;
+  pickVideo(): Promise<{ path: string | null }>;
   revealLogs(kind: LogKind, bundle?: string): Promise<DesktopResult>;
-  pickFolder(purpose?: PickFolderPurpose): Promise<{ path: string | null }>;
-  pickPython(): Promise<{ path: string | null }>;
-  revealModels(): Promise<DesktopResult>;
 }
-
-/** Mirrors `electron/contracts.ts`. It only changes the dialog's title, but
- *  「選模型」 and 「選模型要放哪」 are opposite questions. */
-export type PickFolderPurpose = "model-source" | "model-home";
-
-/** Mirrors `electron/contracts.ts`. `document` is a different SET, not a
- *  widening: 文件翻譯 takes `.txt`/`.md`/`.markdown` and refuses everything
- *  the other two tools open. */
-export type PickAccept = "video" | "media" | "document";
 
 declare global {
   interface Window {
@@ -69,35 +57,15 @@ export function isDesktop(): boolean {
 }
 
 /**
- * Ask the OS for a file. `null` in a browser, and `null` when the person
- * closed the dialog -- the caller cannot tell the two apart and does not
- * need to: both mean "no new source".
- *
- * `accept` defaults to `"video"`, which is what 引用長圖 wants and what this
- * function meant before 逐字稿 learned to listen to audio. Passing
- * `"media"` widens the dialog to audio containers as well.
+ * Ask the OS for a video file. `null` in a browser, and `null` when the
+ * person closed the dialog -- the caller cannot tell the two apart and does
+ * not need to: both mean "no new source".
  */
-export async function pickVideoFile(
-  accept: PickAccept = "video",
-): Promise<string | null> {
+export async function pickVideoFile(): Promise<string | null> {
   const api = desktop();
   if (!api || typeof api.pickVideo !== "function") return null;
-  const picked = await api.pickVideo(accept);
+  const picked = await api.pickVideo();
   return picked?.path ?? null;
-}
-
-/**
- * Ask the OS for a DOCUMENT -- `.txt`, `.md`, `.markdown`.
- *
- * The same channel as `pickVideoFile`, with its own filter set, because the
- * difference between the two dialogs is a list of extensions and nothing
- * else. Named separately anyway: a caller asking for a document should not
- * have to know it is calling something called `pickVideo`, and an older
- * shell that has never heard of `document` opens the video dialog rather
- * than throwing -- the user can still type a path.
- */
-export function pickDocumentFile(): Promise<string | null> {
-  return pickVideoFile("document");
 }
 
 /**
@@ -119,48 +87,6 @@ export async function revealPath(
     kind === "file"
       ? await api.showInFolder(target)
       : await api.revealLogs("errors", target);
-  return result.ok ? null : (result.error ?? "無法開啟");
-}
-
-/**
- * Ask the OS for a DIRECTORY. `null` in a browser and `null` on cancel --
- * the caller cannot tell the two apart and does not need to.
- *
- * Method-checked rather than assumed present, for the reason `desktop()`
- * gives: a bridge from an older shell answers `isDesktop` and has never
- * heard of this channel, and a button that throws on click is worse than
- * one that quietly does nothing available.
- */
-export async function pickFolder(
-  purpose: PickFolderPurpose,
-): Promise<string | null> {
-  const api = desktop();
-  if (!api || typeof api.pickFolder !== "function") return null;
-  const picked = await api.pickFolder(purpose);
-  return picked?.path ?? null;
-}
-
-/** Ask the OS for the interpreter that has the recognition engine in it. */
-export async function pickPythonFile(): Promise<string | null> {
-  const api = desktop();
-  if (!api || typeof api.pickPython !== "function") return null;
-  const picked = await api.pickPython();
-  return picked?.path ?? null;
-}
-
-/**
- * Open the model folder, creating it if this is the first time.
- *
- * Takes no path: the location is the sidecar's to know. Returns a refusal
- * sentence or `null` for success, matching `revealPath` -- a button that
- * silently does nothing is the failure this shape exists to avoid.
- */
-export async function revealModelFolder(): Promise<string | null> {
-  const api = desktop();
-  if (!api || typeof api.revealModels !== "function") {
-    return "這個功能只在桌面版可用";
-  }
-  const result = await api.revealModels();
   return result.ok ? null : (result.error ?? "無法開啟");
 }
 

@@ -351,137 +351,22 @@ function registerIpc(): void {
   ipcMain.handle("mfp:show-in-folder", (_event, target: unknown) =>
     openContained(target, true),
   );
-  ipcMain.handle("mfp:pick-video", async (_event, accept: unknown) => {
+  ipcMain.handle("mfp:pick-video", async () => {
     const window = mainWindow ?? BrowserWindow.getAllWindows()[0];
-    // Anything other than the one recognised widening is treated as the
-    // default. The renderer supplies this string, and a dialog is not the
-    // place to start trusting one.
-    const wide = accept === "media";
-    // Its own set rather than a widening: 文件翻譯 takes prose and nothing
-    // else, and offering it an mp4 would promise a translation of something
-    // the verb refuses.
-    const documents = accept === "document";
     const video = ["mp4", "mkv", "webm", "mov", "m4v", "avi"];
-    // Everything ffmpeg decodes with an audio track in it. `caf` and `m4a`
-    // are here because that is what an iPhone hands over.
-    const audio = [
-      "mp3", "m4a", "aac", "wav", "flac", "ogg", "oga", "opus",
-      "wma", "aiff", "aif", "caf", "amr", "m4b",
-    ];
-    // Mirrors DOCUMENT_SUFFIXES in src/mfp/translate_doc.py. A dialog that
-    // offered more than the verb accepts would turn a picked file into a
-    // refusal the user could not have predicted.
-    const documentExtensions = ["txt", "md", "markdown"];
-    const title = documents
-      ? "選擇要翻譯的文件"
-      : wide
-        ? "選擇音檔或影片"
-        : "選擇影片檔";
-    const filters = documents
-      ? [
-          { name: "文件", extensions: documentExtensions },
-          { name: "所有檔案", extensions: ["*"] },
-        ]
-      : wide
-        ? [
-            { name: "音訊與影片", extensions: [...audio, ...video] },
-            { name: "音訊", extensions: audio },
-            { name: "影片", extensions: video },
-            { name: "字幕", extensions: ["srt", "vtt", "txt"] },
-            { name: "所有檔案", extensions: ["*"] },
-          ]
-        : [
-            { name: "影片", extensions: video },
-            { name: "所有檔案", extensions: ["*"] },
-          ];
     const result = await dialog.showOpenDialog(window!, {
-      title,
+      title: "選擇影片檔",
       properties: ["openFile"],
-      filters,
+      filters: [
+        { name: "影片", extensions: video },
+        { name: "所有檔案", extensions: ["*"] },
+      ],
     });
     return { path: result.canceled ? null : (result.filePaths[0] ?? null) };
   });
   ipcMain.handle("mfp:reveal-logs", (_event, kind: unknown, bundle: unknown) =>
     revealLogs(kind, bundle),
   );
-  ipcMain.handle("mfp:pick-folder", async (_event, purpose: unknown) => {
-    const window = mainWindow ?? BrowserWindow.getAllWindows()[0];
-    // The purpose only picks a title. Anything unrecognised gets the
-    // neutral one rather than being trusted into a branch, for the same
-    // reason `pick-video` treats an unknown `accept` as the default.
-    const title =
-      purpose === "model-home"
-        ? "選擇模型要放在哪個資料夾"
-        : purpose === "model-source"
-          ? "選擇你下載好的模型資料夾"
-          : "選擇資料夾";
-    const result = await dialog.showOpenDialog(window!, {
-      title,
-      // `createDirectory` so a user pointing at a NEW model folder does not
-      // have to leave the app to make one first.
-      properties: ["openDirectory", "createDirectory"],
-    });
-    return { path: result.canceled ? null : (result.filePaths[0] ?? null) };
-  });
-  ipcMain.handle("mfp:pick-python", async () => {
-    const window = mainWindow ?? BrowserWindow.getAllWindows()[0];
-    const result = await dialog.showOpenDialog(window!, {
-      title: "選擇裝了語音辨識引擎的 Python",
-      properties: ["openFile"],
-      filters: [
-        { name: "Python", extensions: ["exe"] },
-        { name: "所有檔案", extensions: ["*"] },
-      ],
-    });
-    return { path: result.canceled ? null : (result.filePaths[0] ?? null) };
-  });
-  ipcMain.handle("mfp:reveal-models", () => revealModels());
-}
-
-/**
- * Open the model folder, at a location the SIDECAR names.
- *
- * Same shape as `revealLogs` and for the same reason: the folder is derived
- * from how the product was installed and from a setting the user can
- * change, so a second implementation here would eventually open a different
- * directory from the one models are being written to -- and would do it
- * silently, because an empty Explorer window looks like an empty folder.
- *
- * It deliberately does NOT go through `openContained`: that check proves a
- * path is inside the OUTPUT root, and the model folder usually is not.
- * Containment is not the guarantee being relied on here; not accepting a
- * path from the renderer at all is.
- */
-async function revealModels(): Promise<DesktopResult> {
-  let home: string;
-  try {
-    const response = await fetch(`${sidecar.baseUrl}/v1/asr/readiness`);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const verdict = (await response.json()) as { home?: { path?: unknown } };
-    if (typeof verdict.home?.path !== "string" || verdict.home.path.length === 0) {
-      throw new Error("readiness did not name a model folder");
-    }
-    home = verdict.home.path;
-  } catch (error) {
-    await logToDisk(`reveal-models failed: ${String(error)}`);
-    return { ok: false, error: "本機服務沒有回應，無法確認模型資料夾位置" };
-  }
-
-  if (!existsSync(home)) {
-    // Created rather than refused: this button's whole job is "show me where
-    // to put the model", and a folder that does not exist yet is the normal
-    // state before the first one is added.
-    try {
-      await mkdir(home, { recursive: true });
-    } catch (error) {
-      return {
-        ok: false,
-        error: `無法建立模型資料夾（${home}）：${String(error)}`,
-      };
-    }
-  }
-  const failure = await shell.openPath(home);
-  return failure ? { ok: false, error: failure } : { ok: true };
 }
 
 /** Start the sidecar, offering 重試 until it works or the user gives up. */

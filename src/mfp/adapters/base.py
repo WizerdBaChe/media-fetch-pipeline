@@ -57,6 +57,20 @@ class FetchContext:
     #: before it could see languages at all. Setting it is how you ask for
     #: a dub on purpose; a video with one audio track ignores it.
     audio_language: str | None = None
+    #: Which caption track to save beside the media, or None to save none.
+    #:
+    #: None is the default because a caption file is a thing the user asked
+    #: for, not a thing `fetch` decides they wanted -- `--with-video` is off
+    #: by default one verb along for the same reason (D-150).
+    #: `captions.ORIGINAL_LANG` is what `--write-subs` alone means: the
+    #: language the video was SPOKEN in. A translation has to be named,
+    #: because asking YouTube for `en` on a Mandarin video returns fluent
+    #: English nobody said (D-146/P-49).
+    #:
+    #: Only the yt-dlp adapter can honour it: the browser chain reads a post
+    #: page, and an Instagram post has no caption track to offer. Asking
+    #: there is not an error, it just finds nothing, and the CLI says so.
+    caption_language: str | None = None
     #: Land this fetch in ONE named folder instead of the download tree.
     #:
     #: Set only by verbs whose transfer is analysis input rather than a

@@ -27,7 +27,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import FileResponse
 
 from mfp import logs
-from mfp.errors import MfpError, UsageError
+from mfp.errors import MfpError, SourceNotFound, UsageError
 from mfp.models import CamelModel
 from mfp.server.stack_jobs import (
     StackJob,
@@ -182,7 +182,7 @@ def build_stack_router() -> APIRouter:
         elif target.is_file():
             candidates = [target]
         else:
-            raise UsageError(f"no such file or folder: {target}")
+            raise SourceNotFound(f"no such file or folder: {target}")
 
         found: list[StackSource] = []
         for candidate in candidates:
@@ -205,7 +205,7 @@ def build_stack_router() -> APIRouter:
     async def frame(body: FrameRequest) -> FrameResponse:
         video = Path(body.video).expanduser()
         if not video.is_file():
-            raise UsageError(f"no such video file: {video}")
+            raise SourceNotFound(f"no such video file: {video}")
         width, height, duration = probe_video(video)
         at = min(max(0.0, parse_timecode(body.at)), max(0.0, duration - 0.05))
         scale = min(1.0, max(64, body.max_width) / width)

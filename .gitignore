@@ -1,4 +1,9 @@
 .venv/
+# The SPEECH engine's environment. Retired with the transcript family
+# (2026-09-16) -- the runtime is gone from this product, but a ~400 MB venv
+# may still sit here on a machine that had it installed, and unignoring the
+# line risks committing it. Left in place on purpose rather than removed.
+.asr-venv/
 __pycache__/
 *.pyc
 .pytest_cache/
@@ -25,6 +30,13 @@ build/pyinstaller/
 out/
 electron/dist-electron/
 
+# An offline run (`[unattended-run]`) is REQUIRED to leave its report here, so
+# this directory reappears on its own and would otherwise show up untracked
+# after every one. The canonical copy — with the decision ledger and the canary
+# reading — lives in ~/.claude/reports/; what lands here is a courtesy copy.
+# Project records go in references/ and docs/, which are versioned.
+/reports/
+
 # ...but `electron/build/` is a SOURCE directory that happens to be named
 # `build`, and the blanket `build/` rule above would swallow the app icon.
 # Without this the packaged exe silently falls back to the stock Electron
@@ -36,3 +48,7 @@ electron/dist-electron/
 gui/test-results/
 gui/playwright-report/
 gui/blob-report/
+
+# Obsolete local material moved aside instead of deleted; each folder carries
+# a NOTE.md saying what it was. Never pushed.
+archive/

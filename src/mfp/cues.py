@@ -102,9 +102,9 @@ def caption_cues(text: str) -> list[tuple[float, float, list[str]]]:
     """`(start, end, [display line, ...])` for every cue, in file order.
 
     The parser both readers share. Which cues survive is decided HERE and
-    nowhere else, so a caller that indexes the result -- the corrector says
-    「第 N 句」 -- is counting the same cues `translate.parse_cues` counts.
-    A cue whose body is empty after markup is stripped is not a cue.
+    nowhere else, so a caller that indexes the result counts the same cues
+    every other reader of this file would. A cue whose body is empty after
+    markup is stripped is not a cue.
 
     Handles both SRT and WebVTT; the only difference that matters is the
     timestamp separator, and `TIMESTAMP` accepts either.

@@ -3,7 +3,7 @@
 The output is the shape a reader already recognises: the first moment keeps
 the whole frame, and every line after it contributes only its subtitle band,
 laid down the page. Reference behaviour and the measurements behind every
-rule here are in `docs/concept-quotestack-2026-08-19.md` and the two spike
+rule here are in `docs/concept-stack-2026-08-19.md` and the two spike
 reports beside it.
 
 Three facts from those spikes drive the whole design:
@@ -46,6 +46,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
 
+from mfp import logs
 from mfp.cues import Cue, group_lines, read_cue_lines
 from mfp.errors import (
     MediaToolFailed,

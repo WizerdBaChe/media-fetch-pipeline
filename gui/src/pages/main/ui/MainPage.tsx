@@ -12,18 +12,12 @@ import { FeatureGuide } from "@/entities/onboarding/ui/FeatureGuide";
 import { useOnboarding } from "@/entities/onboarding/model/store";
 import { CapabilityNotice } from "@/widgets/capability-notice/ui/CapabilityNotice";
 import { FirstRunDialog } from "@/widgets/onboarding/ui/FirstRunDialog";
-import { DocumentWorkspace } from "@/widgets/document-workspace/ui/DocumentWorkspace";
 import { PostWorkspace } from "@/widgets/post-workspace/ui/PostWorkspace";
 import { QueueTable } from "@/widgets/queue-table/ui/QueueTable";
 import {
   StackWorkspace,
-  type StackHandoff,
   type StackSnapshot,
 } from "@/widgets/stack-workspace/ui/StackWorkspace";
-import {
-  TranscriptWorkspace,
-  type TranscriptSnapshot,
-} from "@/widgets/transcript-workspace/ui/TranscriptWorkspace";
 import { StatusBar } from "@/widgets/status-bar/ui/StatusBar";
 import { SettingsOverlay } from "@/widgets/settings-panel/ui/SettingsOverlay";
 import type { SettingsCategory } from "@/widgets/settings-panel/ui/SettingsPanel";
@@ -36,26 +30,19 @@ import { Toolbar } from "@/widgets/toolbar/ui/Toolbar";
  * whole time. Going back is one click and loses nothing -- the job lives on
  * the server, and its events keep arriving.
  *
- * Each view carries a `restore` because a move between them used to be a
- * one-way door: 逐字稿 → 引用長圖 destroyed the transcript, and the only way
- * out was 回到佇列 and choosing the audio file again (user report
- * 2026-08-28). One slot of history, held here because this is the only place
- * that knows both which view is showing and what it was holding.
+ * `quotestack` carries a `restore` because a move away from it used to be a
+ * one-way door: leaving destroyed the frames it had already picked, and the
+ * only way back was 回到佇列 and starting over (user report 2026-08-28). One
+ * slot of history, held here because this is the only place that knows both
+ * which view is showing and what it was holding.
  */
 type View =
   | { kind: "queue" }
   | {
       kind: "quotestack";
       path?: string;
-      handoff?: StackHandoff;
       restore?: StackSnapshot;
     }
-  | { kind: "transcript"; path?: string; restore?: TranscriptSnapshot }
-  // No `restore`: everything this one holds -- the document, the two
-  // languages, the result -- lives in its own store and is still there when
-  // the view comes back. The other two carry a transcript or a frame that
-  // cost minutes to produce, which is what a snapshot is for.
-  | { kind: "translatedoc" }
   // Same reasoning: the link, the package and the draft all live in
   // `explain-post`'s own store, so coming back finds them there. The
   // draft especially -- it is text a person pasted, and losing it to a
@@ -64,8 +51,6 @@ type View =
 
 /** What 上一步 calls the screen it would take you back to. */
 function labelOf(view: View): string {
-  if (view.kind === "transcript") return "逐字稿";
-  if (view.kind === "translatedoc") return "文件翻譯";
   if (view.kind === "brief") return "貼文解說";
   return view.kind === "quotestack" ? "引用長圖" : "佇列";
 }
@@ -108,14 +93,10 @@ export function MainPage() {
   // rather than state: this is read only at the moment of leaving, and
   // re-rendering the page on every keystroke inside a workspace would be a
   // cost paid continuously for a value used once.
-  const transcriptState = useRef<TranscriptSnapshot | null>(null);
   const stackState = useRef<StackSnapshot | null>(null);
 
   /** The view being left, with its workspace's state folded in. */
   const withState = useCallback((current: View): View => {
-    if (current.kind === "transcript") {
-      return { ...current, restore: transcriptState.current ?? undefined };
-    }
     if (current.kind === "quotestack") {
       return { ...current, restore: stackState.current ?? undefined };
     }
@@ -135,6 +116,21 @@ export function MainPage() {
   );
 
   const goBack = useCallback(() => setPast(history.back), []);
+
+  /**
+   * Whether 上一步 already offers what a workspace's own 回到佇列 offers.
+   *
+   * UX walkthrough F7, ruling R3. Both buttons were on screen at once, with
+   * different names for one destination and different effects on the one
+   * history slot: 回到佇列 pushes the workspace INTO the slot, 上一步 spends
+   * it. Nobody could predict which one left 上一步 able to bring them back.
+   * The surviving one is 上一步, because its hint is the only place the
+   * single-slot rule is stated.
+   *
+   * A workspace's close target is the queue in every case, so the test is
+   * about the slot rather than about which tool is open.
+   */
+  const closeOfferedAbove = past.previous?.view.kind === "queue";
 
   /**
    * The one-time explanations, asked for once per launch.
@@ -166,11 +162,6 @@ export function MainPage() {
 
   const openTool = (id: string, path?: string) => {
     if (id === "quotestack") go({ kind: "quotestack", path });
-    if (id === "transcript") go({ kind: "transcript", path });
-    // No `path`: a queue row's folder is a downloaded video, which is the
-    // one thing this tool cannot take. The row's menu says so and offers it
-    // disabled; from the header there is nothing to hand over yet.
-    if (id === "translatedoc") go({ kind: "translatedoc" });
     // No `path`, for the same reason: a queue row hands over the folder
     // it downloaded into, and this verb takes a post URL. The row offers
     // it disabled with the reason (D-137's rule).
@@ -180,7 +171,7 @@ export function MainPage() {
   return (
     <div className="mfp-app">
       {/* The working surface, kept MOUNTED while 設定 is open and made inert.
-          Unmounting it would take a transcript that cost minutes with it; inert
+          Unmounting it would take a quote-stack in progress with it; inert
           is what makes the tabs, the toolbar and 一鍵刪除紀錄 genuinely
           unreachable rather than merely covered up. */}
       <div className="mfp-app__surface" inert={settingsOpen}>
@@ -246,41 +237,17 @@ export function MainPage() {
         {view.kind === "quotestack" && (
           <StackWorkspace
             initialPath={view.path}
-            handoff={view.handoff}
             restore={view.restore}
             onSnapshot={(snapshot) => (stackState.current = snapshot)}
             onClose={() => go({ kind: "queue" })}
-          />
-        )}
-
-        {view.kind === "transcript" && (
-          <TranscriptWorkspace
-            initialPath={view.path}
-            restore={view.restore}
-            onSnapshot={(snapshot) => (transcriptState.current = snapshot)}
-            onClose={() => go({ kind: "queue" })}
-            // The two tools are one workflow: read, pick, quote. Going
-            // through the queue and re-answering "which video, which
-            // captions, which window" would make them two.
-            onQuote={(handoff) => go({ kind: "quotestack", handoff })}
-            // 設定 is where speech recognition is set up, and the workspace
-            // is where a person finds out they need it. Passed down rather
-            // than reached for: which panels exist is this page's business.
-            onOpenSettings={() => setSettingsAt("asr")}
+            closeOfferedAbove={closeOfferedAbove}
           />
         )}
 
         {view.kind === "brief" && (
-          <PostWorkspace onClose={() => go({ kind: "queue" })} />
-        )}
-
-        {view.kind === "translatedoc" && (
-          <DocumentWorkspace
+          <PostWorkspace
             onClose={() => go({ kind: "queue" })}
-            // Same reason 逐字稿 takes it: 設定 is where the translation
-            // model is added, and this is where a person finds out they
-            // need one.
-            onOpenSettings={() => setSettingsAt("asr")}
+            closeOfferedAbove={closeOfferedAbove}
           />
         )}
       </main>

@@ -26,7 +26,7 @@ import {
   type CaptionSource,
   type StackFormState,
 } from "@/features/run-stack/model/form";
-import { presentError } from "@/shared/lib/errors";
+import { hintOrCost, presentError } from "@/shared/lib/errors";
 import { pickVideoFile, revealPath } from "@/shared/lib/desktop";
 import { Button } from "@/shared/ui/Button";
 
@@ -38,25 +38,22 @@ export interface StackWorkspaceProps {
    * rather than a guess from the extension.
    */
   initialPath?: string;
-  /**
-   * A window somebody already chose, arriving from 逐字稿.
-   *
-   * It carries the caption FILE as well as the times, deliberately: the
-   * transcript was read out of that file, so quoting from it costs no second
-   * platform request, and the form lands on the soft path already answered
-   * rather than on the band picker, which is the wrong fork for a video whose
-   * captions are a separate track.
-   *
-   * Takes precedence over `initialPath` -- both name a video, and this one
-   * names the rest of the form too.
-   */
-  handoff?: StackHandoff;
-  /** A previous visit, being resumed. Takes precedence over both of the
-   *  above: they say what to START from, and this says what was already
+  /** A previous visit, being resumed. Takes precedence over `initialPath`:
+   *  that says what to START from, and this says what was already
    *  answered. */
   restore?: StackSnapshot;
   /** What a return here would need, kept current in the caller. */
   onSnapshot?: (snapshot: StackSnapshot) => void;
+  /**
+   * The page above already offers 「← 回到上一步（佇列）」, which goes where
+   * this workspace's own back button goes (F7, ruling R3).
+   *
+   * Two buttons, one destination, two different effects on the single
+   * history slot -- and no way for a reader to tell which was which. The
+   * page owns this decision because it is the only layer that knows what
+   * 上一步 currently points at.
+   */
+  closeOfferedAbove?: boolean;
   onClose: () => void;
 }
 
@@ -71,13 +68,6 @@ export interface StackWorkspaceProps {
 export interface StackSnapshot {
   form: StackFormState;
   choices: StackSource[];
-}
-
-export interface StackHandoff {
-  target: string;
-  subs: string;
-  start: string;
-  end: string;
 }
 
 const SOURCES: ReadonlyArray<{ id: CaptionSource; label: string; hint: string }> = [
@@ -100,10 +90,10 @@ const SOURCES: ReadonlyArray<{ id: CaptionSource; label: string; hint: string }>
 
 export function StackWorkspace({
   initialPath,
-  handoff,
   restore,
   onSnapshot,
   onClose,
+  closeOfferedAbove,
 }: StackWorkspaceProps) {
   const [form, setForm] = useState<StackFormState>(
     () => restore?.form ?? emptyForm(),
@@ -129,23 +119,6 @@ export function StackWorkspace({
     setForm(formForVideo(source.path, source.captions[0]));
   }, []);
 
-  /**
-   * A hand-off answers the whole first half of the form, so there is nothing
-   * to resolve: which video, where the words come from, and which part of it.
-   * `stack:sources` would only ask ffprobe a question already answered.
-   */
-  useEffect(() => {
-    if (!handoff || resumed.current) return;
-    setChoices([]);
-    setForm({
-      ...emptyForm(handoff.target),
-      captionSource: "file",
-      subsFile: handoff.subs,
-      start: handoff.start,
-      end: handoff.end,
-    });
-  }, [handoff]);
-
   /** What a return here would need. Cheap: two references, no copying. */
   useEffect(() => {
     onSnapshot?.({ form, choices });
@@ -153,7 +126,7 @@ export function StackWorkspace({
 
   /** Resolve whatever the caller opened this with, once. */
   useEffect(() => {
-    if (!initialPath || handoff || resumed.current) return;
+    if (!initialPath || resumed.current) return;
     let cancelled = false;
     setResolving(true);
     api
@@ -171,7 +144,7 @@ export function StackWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [initialPath, handoff, adopt]);
+  }, [initialPath, adopt]);
 
   const request = useMemo(() => toRequest(form), [form]);
   const issues = useMemo(() => formIssues(form), [form]);
@@ -227,9 +200,14 @@ export function StackWorkspace({
   return (
     <section className="mfp-stack" aria-labelledby="mfp-stack-title">
       <header className="mfp-stack__header">
-        <button type="button" className="mfp-stack__back" onClick={onClose}>
-          ← 回到佇列
-        </button>
+        {/* Hidden when 上一步 above already goes here: two names for one
+            destination, with different effects on the one history slot, is
+            a choice nobody can make correctly (F7). */}
+        {!closeOfferedAbove && (
+          <button type="button" className="mfp-stack__back" onClick={onClose}>
+            ← 回到佇列
+          </button>
+        )}
         <h2 id="mfp-stack-title">引用長圖</h2>
         <GuideButton id="quotestack" className="mfp-tx__guide" />
       </header>
@@ -485,7 +463,9 @@ function StackResult({ job }: { job: StackJob | null | undefined }) {
       <aside className="mfp-stack__result mfp-stack__result--failed" role="alert">
         <h3>{presented.label}</h3>
         <p>{job.errorDetail}</p>
-        {presented.hint && <p className="mfp-stack__hint">{presented.hint}</p>}
+        {hintOrCost(presented) && (
+          <p className="mfp-stack__hint">{hintOrCost(presented)}</p>
+        )}
         {job.errorBundle && (
           <Button onClick={() => revealPath(job.errorBundle!, "errors")}>
             開啟這次的錯誤資料

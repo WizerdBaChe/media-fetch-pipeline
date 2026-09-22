@@ -4,12 +4,11 @@
 route can exist at all: the desktop prepares the package, shows the pictures
 and takes an explanation back, and the looking is done by an agent somewhere
 else. A route that called a model would need a provider, a key and a vendor
-choice -- all three on `concept-post-brief`'s 明確不做 list.
+choice -- all three on `concept-brief`'s 明確不做 list.
 
-Its own module rather than a section of `routes_transcript`: the two share no
-engine, no progress stream and no blocking-work reasoning. What they do share
-is `brief.fetch_package`, which is the point of extracting it -- the CLI and
-this router run the same order of operations rather than two that drift.
+Its own module: what `brief` shares with the CLI is `brief.fetch_package`,
+which is the point of extracting it -- the CLI and this router run the same
+order of operations rather than two that drift.
 
 Two routes:
 
@@ -42,9 +41,9 @@ class BriefRequest(CamelModel):
     #: never guessed -- the caller classifies from the user's question.
     lane: str | None = None
     refresh: bool = False
-    #: Transfer the post's video(s) too, so 逐字稿 can be run over them.
-    #: Still no model here (`INV-P8`): fetching a file and reading a file are
-    #: different verbs, and this route only does the first.
+    #: Transfer the post's video(s) too, beside the images. Nothing here reads
+    #: what a video says -- this program has no speech recognition (D-162) --
+    #: so the caller is told where the file is and that the rest is theirs.
     with_video: bool = False
 
 

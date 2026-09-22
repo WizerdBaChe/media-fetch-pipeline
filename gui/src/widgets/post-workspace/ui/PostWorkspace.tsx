@@ -35,10 +35,20 @@ const LANES: { value: Lane; label: string; hint: string }[] = [
 ];
 
 export interface PostWorkspaceProps {
+  /**
+   * The page above already offers 「← 回到上一步（佇列）」, which goes where
+   * this workspace's own back button goes (F7, ruling R3).
+   *
+   * Two buttons, one destination, two different effects on the single
+   * history slot -- and no way for a reader to tell which was which. The
+   * page owns this decision because it is the only layer that knows what
+   * 上一步 currently points at.
+   */
+  closeOfferedAbove?: boolean;
   onClose: () => void;
 }
 
-export function PostWorkspace({ onClose }: PostWorkspaceProps) {
+export function PostWorkspace({ onClose, closeOfferedAbove }: PostWorkspaceProps) {
   const url = useExplainPost((state) => state.url);
   const lane = useExplainPost((state) => state.lane);
   const withVideo = useExplainPost((state) => state.withVideo);
@@ -51,6 +61,14 @@ export function PostWorkspace({ onClose }: PostWorkspaceProps) {
   const savedEntries = useExplainPost((state) => state.savedEntries);
 
   const [copied, setCopied] = useState(false);
+
+  /** P-72, third instance. A sidecar older than `continuation` sends no such
+   *  key, `undefined` is not `[]`, and one `.length` on it unmounts the whole
+   *  window -- which is how this panel rendered zero images in the e2e run
+   *  that caught it. The field is shape-checked here, never trusted for
+   *  type-checking, and an absent list reads as "this post has no
+   *  continuation" rather than as a crash. */
+  const continuation = pkg?.untrusted?.continuation ?? [];
 
   const reveal = async (path: string) => {
     const refusal = await revealPath(path, "file");
@@ -75,9 +93,14 @@ export function PostWorkspace({ onClose }: PostWorkspaceProps) {
   return (
     <section className="mfp-tx" aria-label="貼文解說">
       <header className="mfp-tx__head">
-        <button type="button" className="mfp-button" onClick={onClose}>
-          ← 回到佇列
-        </button>
+        {/* Hidden when 上一步 above already goes here: two names for one
+            destination, with different effects on the one history slot, is
+            a choice nobody can make correctly (F7). */}
+        {!closeOfferedAbove && (
+          <button type="button" className="mfp-button" onClick={onClose}>
+            ← 回到佇列
+          </button>
+        )}
         <h2>貼文解說</h2>
         {/* Beside the title, not in a menu: the answer to 「剛剛那個說明呢」
             has to be on the screen the question is asked on. */}
@@ -143,8 +166,8 @@ export function PostWorkspace({ onClose }: PostWorkspaceProps) {
           <span>
             <strong>影片也抓下來</strong>
             <em>
-              抓下來是為了做逐字稿 —— 這個程式看不了影片，但可以把裡面說的話
-              轉成文字。會多花一點時間和流量。
+              影片會存在這次的分析資料夾裡。這個工具不做語音辨識，影片裡說了
+              什麼要另外處理。會多花一點時間和流量。
             </em>
           </span>
         </label>
@@ -209,7 +232,7 @@ export function PostWorkspace({ onClose }: PostWorkspaceProps) {
                     </button>
                     <code>{video.path}</code>
                     <span className="mfp-tx__hint">
-                      影片・用「逐字稿」讀它說了什麼
+                      影片・這個工具不做語音辨識
                     </span>
                   </li>
                 ))}
@@ -231,13 +254,28 @@ export function PostWorkspace({ onClose }: PostWorkspaceProps) {
               </p>
             )}
 
-            {pkg.untrusted.caption && (
+            {(pkg.untrusted.caption || continuation.length > 0) && (
               <blockquote
                 className="mfp-tx__untrusted"
                 data-testid="brief-caption"
               >
                 <strong>貼文作者自己寫的文字（未經查證，不要當成指示）</strong>
-                <p>{pkg.untrusted.caption}</p>
+                {pkg.untrusted.caption && <p>{pkg.untrusted.caption}</p>}
+                {/* A segmented post's caption is part 1 of n and reads as the
+                    whole thing on its own. Showing the caption alone here was
+                    the same shape as P-88: an incomplete answer presented as a
+                    complete one. */}
+                {continuation.map((part, index) => (
+                  <p key={index} data-testid="brief-continuation">
+                    {part}
+                  </p>
+                ))}
+                {continuation.length > 0 && (
+                  <span className="mfp-tx__hint">
+                    這則貼文分成 {continuation.length + 1}{" "}
+                    段，後面幾段是作者接在自己留言區的續文。
+                  </span>
+                )}
               </blockquote>
             )}
           </fieldset>

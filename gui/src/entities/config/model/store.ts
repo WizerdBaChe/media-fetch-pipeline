@@ -31,6 +31,17 @@ export function globalPolicyOf(config: AppConfig | null): string {
   return config?.policy ?? "best";
 }
 
+/**
+ * Falls back to `false`, matching the backend default.
+ *
+ * `=== true`, not truthiness: an older server answers this field as
+ * `undefined`, and the add form ticks its box from this value — a missing
+ * field must read as "off", never as "whatever the last render said" (P-72).
+ */
+export function globalWriteSubsOf(config: AppConfig | null): boolean {
+  return config?.writeSubs === true;
+}
+
 export const useConfigStore = create<ConfigStoreState>()((set, get) => ({
   config: null,
   lastError: null,

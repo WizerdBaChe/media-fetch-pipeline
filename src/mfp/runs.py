@@ -22,8 +22,8 @@ index, never written to again. That is the repair for P-60, which orphaned
 
 Where one analysis keeps its files.
 
-Everything `mfp transcript`, `mfp translate` and `mfp correct` produce used to
-land flat in `<outputRoot>/_captions/`, named `<stem>-<sha1[:8]>.<lang>.srt`.
+Everything an analysis verb produced used to land flat in
+`<outputRoot>/_captions/`, named `<stem>-<sha1[:8]>.<lang>.srt`.
 Two complaints killed that layout, and both were the user's (2026-08-28):
 
   * the eight hex characters read as neither a timestamp nor a hash, so they
@@ -55,6 +55,24 @@ lets the name be readable: the cache is keyed on the resolved source path (or
 the URL), which is exact, while the folder is named for a human, which is not.
 A user who renames a folder loses the cache hit and pays for a re-analysis --
 never a wrong transcript.
+
+---
+
+**Nothing in this module knows what a transcript is, since 2026-09-09.**
+`record_transcript` and `Run.captions` moved out to their own module by user
+ruling (「拆成兩份」), and that whole family was later removed with it
+(2026-09-16). The handoff card for `local-transcript-maker` §5 named this
+module as the single thing blocking the family's extraction -- the import
+graph called it CORE and was right, while its content was transcript-shaped,
+and an import graph cannot see that by construction. The split is what made
+the removal possible without touching this module a second time.
+
+What is left here is a store, in the sense a filesystem is: it holds what
+verbs produce without knowing what any of them are. 字幕檔 and 文字檔 stay,
+and that is not an exception -- they name a LAYOUT the user ruled (D-122),
+`place` routes every analysis verb's output through it, and `brief` writes
+into 文字檔 without being a recognition verb. Routing a suffix is not knowing
+what a file means.
 """
 
 from __future__ import annotations
@@ -79,6 +97,7 @@ __all__ = [
     "TIER_RAW",
     "adopt_reference",
     "canonical_post_key",
+    "discard_if_untouched",
     "download_tree_roots",
     "find",
     "home",
@@ -87,7 +106,6 @@ __all__ = [
     "legacy_roots",
     "open_run",
     "place",
-    "record_transcript",
     "reference_home",
     "refuse_download_tree",
     "run_of",
@@ -95,6 +113,7 @@ __all__ = [
     "tier_of",
     "verb_of",
     "workspace_for",
+    "write_marker",
 ]
 
 #: The folder names a person reads. Chinese because the people who open this
@@ -174,28 +193,6 @@ class Run:
 
     def read_marker(self) -> dict:
         return _read_marker(self.root)
-
-    def captions(self, language: str | None = None) -> list[Path]:
-        """The transcript files this run recorded, still on disk.
-
-        Recorded rather than globbed. A folder holds the original transcript,
-        its translations and its corrections, all sharing a stem, and a glob
-        would happily hand `talk.zh.corrected.srt` back as the transcript to
-        correct. `_source.json` says which files are transcripts because
-        something WROTE them as one.
-        """
-        rows = self.read_marker().get("transcripts") or {}
-        if not isinstance(rows, dict):
-            return []
-        wanted = [lang for lang in rows if language is None or lang == language]
-        if language is not None and not wanted:
-            wanted = list(rows)
-        out = []
-        for lang in wanted:
-            candidate = self.root / str(rows[lang])
-            if candidate.is_file():
-                out.append(candidate)
-        return out
 
 
 def home(output_root: str | Path) -> Path:
@@ -388,7 +385,7 @@ def refuse_download_tree(output_root: str | Path, candidate: str | Path) -> Path
 
     `INV-P3`, narrowed during M2 from what the PIM first wrote. The first
     version refused any `--out` outside a store, and implementing it showed
-    the rule fighting the user: `mfp transcript --out D:\\MyNotes` is an
+    the rule fighting the user: `mfp stack --out D:\\MyNotes\\quote.png` is an
     ordinary export of a finished product, not pollution, and refusing it
     would make the invariant an obstacle rather than a protection.
 
@@ -498,7 +495,7 @@ def open_run(
     folder.mkdir(parents=True)
 
     run = Run(folder)
-    _write_marker(run, {
+    write_marker(run, {
         "schemaVersion": SCHEMA_VERSION,
         "source": str(source),
         "key": key or key_for(source),
@@ -509,6 +506,41 @@ def open_run(
         "transcripts": {},
     })
     return run
+
+
+def discard_if_untouched(run: Run) -> bool:
+    """Undo an `open_run` that produced nothing. Returns whether it did.
+
+    The one deleting path in this module, and it exists because the other
+    rule here is stronger than it looks: a run folder that exists is a CLAIM
+    that an analysis happened (`open_run`'s own comment), and `mfp analyzed`
+    reads the tree as fact. A cancelled transcription that left its folder
+    behind would put an analysis with no transcript into that list forever,
+    and the user cannot tell it from one whose files went missing.
+
+    Deliberately narrow, because deleting is not this module's job: it
+    removes the marker and the folder, and ONLY when the folder holds
+    nothing else -- no subdirectory, no file, not even an empty 字幕檔/.
+    Anything else means something got written after all, and a partial
+    result is the user's to look at and delete. The refusal branch is
+    exercised on purpose (`test_runs.py`), because a destructive path that
+    has never been run is a destructive path nobody has checked (P-78).
+    """
+    if not run.root.is_dir():
+        return False
+    leftovers = [entry for entry in run.root.iterdir() if entry.name != MARKER]
+    if leftovers:
+        return False
+    run.marker.unlink(missing_ok=True)
+    try:
+        run.root.rmdir()
+    except OSError:
+        # Something appeared between the listing and the removal, or the
+        # folder is open in Explorer. Leaving it is the safe answer: the
+        # cost is one empty folder, and the alternative is a recursive
+        # delete on a path that just proved it is not what we measured.
+        return False
+    return True
 
 
 def verb_of(marker: dict) -> str:
@@ -565,67 +597,6 @@ def workspace_for(
     )
 
 
-def record_transcript(run: Run, path: Path, language: str | None = None) -> None:
-    """Note that `path` is a TRANSCRIPT of this run's source.
-
-    Called by whatever produced it. Everything else in the folder -- the
-    translations, the corrected copies, the diff -- is derived from one of
-    these, and only these are what a later read may hand back as the cached
-    answer.
-
-    **Derived artifacts are deliberately NOT recorded here** (F4 audit gap
-    G4, ruled 2026-08-30). The audit's observation is correct -- a
-    translation, a corrected copy and a tidied copy are findable by filename
-    convention alone -- and the answer is still no, for three reasons worth
-    writing down so the next audit does not re-raise it:
-
-      * This map answers exactly one question: which file may be handed back
-        as the cached transcript for this source (`Run.captions`). A derived
-        file must never answer it -- `talk.eng_Latn.srt` returned as the
-        transcript of the audio is a wrong transcript, and a wrong transcript
-        looks exactly like a right one (D-122). Adding them would therefore
-        need a SECOND key, and a key nothing reads is worse than no key
-        (P-57).
-      * Every derived set already carries its own record, filed under one
-        serial with the file it describes: `*.corrections.json`,
-        `*.tidy.json`, `*.translation.json`. That record names its source,
-        its engine and its numbers -- strictly more than a marker entry could
-        hold -- and `runs.place_set` is what stops it drifting from its
-        subject (P-62). The marker would be a second, weaker copy of it.
-      * `--out` can send a derived file anywhere, including outside any run
-        folder, so this map could only ever be a PARTIAL index that reads as
-        a complete one. D-122 rejected an index for that exact reason: a
-        second thing that can be wrong about what is on disk.
-
-    Reopen this if something ever needs to enumerate derived files WITHOUT
-    reading the folder -- that is the trigger.
-
-    **Checked 2026-09-01 when `mfp.index` was built, and it did NOT fire.**
-    Worth writing down, because the two look alike from a distance. The index
-    enumerates RUNS -- source, producing verb, pointer, tier -- to answer
-   「has this been analysed」. It never enumerates the files inside one, so
-    the second key this docstring refuses is still unneeded and all three
-    reasons above stand unchanged. What ruling R2 actually reopened is
-    D-122's rejection of an index at all, on the objection that it would be a
-    second thing that can be wrong about the disk; `INV-P7` answers that one
-    by making it a cache with no repair path -- stale means rebuild, never
-    reconcile. That is a different argument from this one, in a different
-    layer, and conflating them is how the marker would quietly grow a field
-    nothing reads (P-57).
-    """
-    marker = run.read_marker()
-    rows = marker.get("transcripts")
-    if not isinstance(rows, dict):
-        rows = {}
-    try:
-        relative = str(Path(path).relative_to(run.root)).replace("\\", "/")
-    except ValueError:
-        return
-    rows[str(language or "und")] = relative
-    marker["transcripts"] = rows
-    _write_marker(run, marker)
-
-
 def _read_marker(folder: Path) -> dict:
     try:
         payload = json.loads((folder / MARKER).read_text(encoding="utf-8"))
@@ -634,7 +605,12 @@ def _read_marker(folder: Path) -> dict:
     return payload if isinstance(payload, dict) else {}
 
 
-def _write_marker(run: Run, payload: dict) -> None:
+def write_marker(run: Run, payload: dict) -> None:
+    """Replace this run's `_source.json` with `payload`.
+
+    Public rather than reached for through the underscore, so the store's
+    surface says what another module is allowed to do with a marker.
+    """
     run.root.mkdir(parents=True, exist_ok=True)
     run.marker.write_text(
         json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8"

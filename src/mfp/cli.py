@@ -47,21 +47,22 @@ AUDIO_LANG_HELP = (
     "one audio track"
 )
 
+WRITE_SUBS_HELP = (
+    "Also save the platform's own caption track beside the media, in the "
+    "language the video was spoken in. Off unless asked for; a post that "
+    "offers no track says so on stderr and still downloads"
+)
+
+SUB_LANG_HELP = (
+    "Which caption track to save, e.g. `ja`. Implies --write-subs. Default: "
+    "`orig`, the language actually spoken -- naming a language asks the "
+    "platform for a translation of it, which is a different thing"
+)
+
 #: Which platform each `--platform` value resolves to when picking an
 #: adapter. The value is a platform name, not an adapter name, because
 #: `build_adapter` maps platforms.
 _FORCED_PLATFORM = {"instagram": "instagram", "ytdlp": "youtube"}
-
-#: Mirrors `mfp.transcript.FORMATS`, and duplicated ON PURPOSE: argparse needs
-#: `choices` while the parser is being BUILT, which happens for every verb, and
-#: importing the transcript module there would make `mfp doctor` pay for
-#: `stack`'s import. `test_cli.py` asserts the two lists stay equal, so the
-#: duplication cannot drift silently.
-_TRANSCRIPT_FORMATS = ("timed", "text", "srt")
-
-#: Mirrors `mfp.transcript.RECOGNIZE_MODES`, duplicated for the same reason
-#: and guarded by the same kind of test.
-_RECOGNIZE_MODES = ("auto", "always", "never")
 
 #: Mirrors `mfp.brief.LANES`, duplicated for the same reason and guarded by
 #: the same kind of test.
@@ -154,6 +155,14 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="CODE",
         help=AUDIO_LANG_HELP,
     )
+    # On `probe` as well as `fetch`, for `--audio-lang`'s reason: the
+    # manifest is the thing `fetch --manifest` transfers later, so a track
+    # that was not discovered during the probe cannot be fetched from the
+    # file afterwards.
+    probe_parser.add_argument("--write-subs", action="store_true", help=WRITE_SUBS_HELP)
+    probe_parser.add_argument(
+        "--sub-lang", default=None, metavar="CODE", help=SUB_LANG_HELP
+    )
     probe_parser.add_argument(
         "--json", action="store_true", help="Emit machine-readable JSON on stdout"
     )
@@ -199,6 +208,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="CODE",
         help=AUDIO_LANG_HELP,
+    )
+    fetch_parser.add_argument("--write-subs", action="store_true", help=WRITE_SUBS_HELP)
+    fetch_parser.add_argument(
+        "--sub-lang", default=None, metavar="CODE", help=SUB_LANG_HELP
     )
     fetch_parser.add_argument(
         "--json", action="store_true", help="Emit machine-readable JSON on stdout"
@@ -336,9 +349,10 @@ def build_parser() -> argparse.ArgumentParser:
     brief_parser.add_argument(
         "--with-video", action="store_true",
         help="Also transfer the post's video(s) into the same analysis run. "
-             "Nothing here watches them: this exists so you can run "
-             "`mfp transcript` over the file and read what was SAID. Off by "
-             "default because a video is the expensive item in any post",
+             "This tool does not turn speech into text, so what the video "
+             "SAYS must be handled elsewhere -- this only saves the file. "
+             "Off by default because a video is the expensive item in any "
+             "post",
     )
     brief_parser.add_argument(
         "--json", action="store_true",
@@ -369,92 +383,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     save_parser.add_argument(
         "--json", action="store_true", help="Emit machine-readable JSON on stdout"
-    )
-
-    transcript_parser = subparsers.add_parser(
-        "transcript",
-        help="Read a video's captions as text (and find the part worth quoting)",
-    )
-    transcript_parser.add_argument(
-        "target",
-        help="A post URL, an audio or video file (mp3, m4a, mp4, wav... — "
-             "anything ffmpeg can decode), or a caption file (.srt/.vtt/.txt) "
-             "to read directly. A media file with no captions is LISTENED to",
-    )
-    transcript_parser.add_argument(
-        "--list", action="store_true",
-        help="Report which caption tracks the video has and stop. Costs one "
-             "metadata read and downloads nothing",
-    )
-    transcript_parser.add_argument(
-        # `--sub-lang` first and `--lang` as an alias, not the other way
-        # round: when the original language cannot be determined the refusal
-        # tells the caller to "pass --sub-lang", and a message naming a flag
-        # the command does not have is worse than no message. Same name as on
-        # `mfp stack` for the same reason -- one concept, one spelling.
-        "--sub-lang", "--lang", dest="sub_lang", default="orig",
-        help="Caption language. The default 'orig' takes the language actually "
-             "spoken rather than a machine translation of it -- asking for 'en' "
-             "on a Mandarin video returns fluent English nobody said",
-    )
-    transcript_parser.add_argument(
-        "--from", dest="start", default=None,
-        help="Window start, e.g. 3:50. Same meaning as on `mfp stack`: a "
-             "caption still on screen when the window opens comes with it",
-    )
-    transcript_parser.add_argument("--to", dest="end", default=None,
-                                   help="Window end, e.g. 4:40")
-    transcript_parser.add_argument(
-        "--format", default="timed", choices=list(_TRANSCRIPT_FORMATS),
-        help="timed: one line per caption with its timestamp, the shape to "
-             "pick a quote out of (default). text: paragraphs, for reading or "
-             "pasting. srt: the caption file itself, unchanged",
-    )
-    transcript_parser.add_argument(
-        "--out", default=None,
-        help="Also write the rendered text here. Without it the text goes to "
-             "stdout and the caption file stays where it was cached",
-    )
-    transcript_parser.add_argument(
-        "--out-root", default=None,
-        help="Where captions fetched from a URL are cached (default from "
-             "config). They are reused on the next run",
-    )
-    transcript_parser.add_argument(
-        "--refresh", action="store_true",
-        help="Re-fetch even when a cached caption file is already there",
-    )
-    transcript_parser.add_argument(
-        "--json", action="store_true", help="Emit machine-readable JSON on stdout"
-    )
-    transcript_parser.add_argument(
-        "--recognize", default="auto", choices=list(_RECOGNIZE_MODES),
-        help="When to transcribe the AUDIO rather than read captions. auto: "
-             "only when no caption track exists, which for a local audio file "
-             "is always (default). always: ignore captions even when they are "
-             "there — an auto-generated track can be worse than a fresh "
-             "transcription. never: refuse, and say so",
-    )
-    transcript_parser.add_argument(
-        "--asr-lang", dest="asr_language", default="auto",
-        help="Spoken language for recognition, e.g. zh or en. The default "
-             "maps the languages spoken ACROSS the file and decodes each "
-             "passage in its own. Naming one forces it on the whole "
-             "recording, which is right only when the recording really is "
-             "monolingual -- on a file that changes language it replaces an "
-             "accidental wrong label with a deliberate one",
-    )
-    transcript_parser.add_argument(
-        "--asr-languages", dest="asr_languages", default=None,
-        help="Comma-separated codes the recording may contain, e.g. zh,en. "
-             "Detection then votes only among these. Worth declaring: the "
-             "detector offers languages a recording is not in, and one such "
-             "window is enough to misplace a passage. Ignored when "
-             "--asr-lang names a single language",
-    )
-    transcript_parser.add_argument(
-        "--asr-model", dest="asr_model", default=None,
-        help="Override the configured recognition model for this run",
     )
 
     guide_parser = subparsers.add_parser(
@@ -507,237 +435,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run", action="store_true", help="Report what would be written and write nothing"
     )
     install_parser.add_argument(
-        "--json", action="store_true", help="Emit machine-readable JSON on stdout"
-    )
-
-    # --- speech-recognition setup -------------------------------------------
-    #
-    # The CLI half of what the desktop app's 語音辨識 panel does. It exists for
-    # the reason every other verb here does: the GUI is one caller of this
-    # tool and must not be the only way to do something. It also happens to
-    # be the half a user can be TOLD to run when the panel itself is the
-    # thing that is confusing them.
-    status_parser = subparsers.add_parser(
-        "asr-status",
-        help="Report whether speech recognition is ready, and what is missing",
-    )
-    status_parser.add_argument(
-        "--json", action="store_true", help="Emit machine-readable JSON on stdout"
-    )
-
-    add_parser = subparsers.add_parser(
-        "asr-add",
-        help="Add a downloaded recognition model to the model folder",
-        epilog=(
-            "The three modes differ in what happens to the ORIGINAL. copy "
-            "leaves it alone and uses twice the disk; move frees the disk and "
-            "breaks whatever else pointed at it; link (a Windows directory "
-            "junction) costs nothing but stops working if the original is "
-            "deleted or renamed."
-        ),
-    )
-    add_parser.add_argument("path", help="The model folder you downloaded")
-    add_parser.add_argument(
-        "--mode",
-        default="copy",
-        choices=["copy", "move", "link"],
-        help="How to bring it in (default: %(default)s)",
-    )
-    add_parser.add_argument(
-        "--name", default=None, help="Call it something other than its own name"
-    )
-    add_parser.add_argument(
-        "--json", action="store_true", help="Emit machine-readable JSON on stdout"
-    )
-
-    use_parser = subparsers.add_parser(
-        "asr-use", help="Choose which of the installed models is used"
-    )
-    use_parser.add_argument("name", help="A model name reported by `mfp asr-status`")
-    use_parser.add_argument(
-        "--json", action="store_true", help="Emit machine-readable JSON on stdout"
-    )
-
-    # --- translation --------------------------------------------------------
-    #
-    # A separate verb over a caption file that ALREADY EXISTS, never a flag on
-    # `transcript` (user ruling 2026-08-28). Two decisions made at two moments
-    # by a person who may want to read the original first.
-    translate_parser = subparsers.add_parser(
-        "translate",
-        help="Translate a transcript that already exists into another language",
-        epilog=(
-            "Takes a caption file, not media: run `mfp transcript` first. The "
-            "cue timings are kept, so the result can be quoted with "
-            "`mfp stack --subs` exactly like the original."
-        ),
-    )
-    translate_parser.add_argument("source", help="A .srt, .vtt or .txt transcript")
-    translate_parser.add_argument(
-        "--to", dest="target", required=True,
-        help="Target language: an ISO code like `en`, or a FLORES-200 code "
-             "like `eng_Latn`",
-    )
-    translate_parser.add_argument(
-        "--from", dest="source_lang", default=None,
-        help="Source language. Read from the caption filename when this "
-             "project wrote it; name it for anything else",
-    )
-    translate_parser.add_argument(
-        "--model", dest="translation_model", default=None,
-        help="Use a translation model other than the configured one",
-    )
-    translate_parser.add_argument(
-        "--out", default=None,
-        help="Write somewhere other than the transcript's own analysis folder",
-    )
-    translate_parser.add_argument(
-        "--json", action="store_true", help="Emit machine-readable JSON on stdout"
-    )
-
-    doc_parser = subparsers.add_parser(
-        "translate-doc",
-        help="Translate a document, keeping its headings, lists and code blocks",
-        epilog=(
-            "A separate verb from `translate` because a document is not a "
-            "transcript: paragraphs are translated a sentence at a time, "
-            "blank lines and markup survive, and fenced code is never sent "
-            "to the model. Takes .txt, .md or .markdown."
-        ),
-    )
-    doc_parser.add_argument("source", help="A .txt, .md or .markdown document")
-    doc_parser.add_argument(
-        "--to", dest="target", required=True,
-        help="Target language: an ISO code like `en`, or a FLORES-200 code "
-             "like `zho_Hant`",
-    )
-    doc_parser.add_argument(
-        "--from", dest="source_lang", required=True,
-        help="Source language. Required: a document carries no language in "
-             "its name for this to read",
-    )
-    doc_parser.add_argument(
-        "--model", dest="translation_model", default=None,
-        help="Use a translation model other than the configured one",
-    )
-    doc_parser.add_argument(
-        "--out", default=None,
-        help="Write somewhere other than a new folder under the output root",
-    )
-    doc_parser.add_argument(
-        "--json", action="store_true", help="Emit machine-readable JSON on stdout"
-    )
-
-    correct_parser = subparsers.add_parser(
-        "correct",
-        help="Offer term corrections for a transcript that already exists",
-        epilog=(
-            "Prints what it WOULD change and changes nothing. `--apply` "
-            "writes two new files beside the original -- the corrected "
-            "transcript and a record of every substitution -- and never "
-            "touches the original itself. Nothing can be substituted that is "
-            "not in the glossary, so `--enrol` is how this feature learns: "
-            "correct a term by hand once and the next run matches it exactly. "
-            "Add `--tidy` to take the filler cues out in the same run: one "
-            "copy that is both, rather than two that are each half."
-        ),
-    )
-    # Optional, because `--enrol` and `--list` are glossary housekeeping and
-    # have no transcript to speak of. Demanding one would make adding a term
-    # require naming a file it has nothing to do with.
-    correct_parser.add_argument(
-        "source", nargs="?", help="A .srt or .vtt transcript")
-    correct_parser.add_argument(
-        "--apply", action="store_true",
-        help="Write the corrected copy. Off by default: a correction has to "
-             "be seen before it is made",
-    )
-    correct_parser.add_argument(
-        "--enrol", action="append", default=[], metavar="TERM[=WRONG]",
-        help="Add a term to the glossary, optionally with the wrong spelling "
-             "you saw. Repeatable. `--enrol 基板=機板` records both",
-    )
-    correct_parser.add_argument(
-        "--forget", action="append", default=[], metavar="TERM",
-        help="Remove a term from the glossary. Repeatable. Nothing already "
-             "corrected changes -- this only stops it being proposed again",
-    )
-    correct_parser.add_argument(
-        "--list", action="store_true", dest="list_terms",
-        help="Print the glossary and stop",
-    )
-    correct_parser.add_argument(
-        "--exact-only", action="store_true",
-        help="Only offer spellings already enrolled -- no phonetic guessing",
-    )
-    correct_parser.add_argument(
-        "--tidy", action="store_true",
-        help="Also take out the filler cues, in one run and one output file. "
-             "Identical to `mfp tidy --correct`: which stage runs first is a "
-             "property of the pipeline, not of the command you typed",
-    )
-    correct_parser.add_argument(
-        "--out", default=None,
-        help="Write somewhere other than the transcript's own analysis folder",
-    )
-    correct_parser.add_argument(
-        "--json", action="store_true", help="Emit machine-readable JSON on stdout"
-    )
-
-    tidy_parser = subparsers.add_parser(
-        "tidy",
-        help="Make a reading copy of a transcript with its filler cues left out",
-        epilog=(
-            "Prints what it WOULD remove and removes nothing. `--apply` "
-            "writes a tidied copy beside the original and never touches the "
-            "original itself. Only a cue that is NOTHING BUT filler is "
-            "dropped -- 嗯 and 好好好 go, 好像 and 那個凹凸鏡 stay -- and "
-            "only terms on your own list count, so an empty list removes "
-            "nothing. `--add-common` fills it with the usual ones. Add "
-            "`--correct` to fix the glossary's terms in the same run: one "
-            "copy that is both, rather than two that are each half."
-        ),
-    )
-    # Optional for the same reason `correct`'s is: list housekeeping has no
-    # transcript to speak of.
-    tidy_parser.add_argument(
-        "source", nargs="?", help="A .srt or .vtt transcript")
-    tidy_parser.add_argument(
-        "--apply", action="store_true",
-        help="Write the tidied copy. Off by default: a removal has to be "
-             "seen before it is made",
-    )
-    tidy_parser.add_argument(
-        "--add", action="append", default=[], metavar="TERM",
-        help="Add a filler to your list. Repeatable",
-    )
-    tidy_parser.add_argument(
-        "--add-common", action="store_true",
-        help="Add the usual Chinese and English fillers to your list. An "
-             "explicit act, not a default: nothing is ever removed by a term "
-             "you did not put there",
-    )
-    tidy_parser.add_argument(
-        "--forget", action="append", default=[], metavar="TERM",
-        help="Remove a filler from your list. Repeatable. Nothing already "
-             "written changes",
-    )
-    tidy_parser.add_argument(
-        "--list", action="store_true", dest="list_terms",
-        help="Print the filler list and stop",
-    )
-    tidy_parser.add_argument(
-        "--correct", action="store_true",
-        help="Also correct the glossary's terms, in one run and one output "
-             "file. Identical to `mfp correct --tidy`: which stage runs "
-             "first is a property of the pipeline, not of the command you "
-             "typed",
-    )
-    tidy_parser.add_argument(
-        "--out", default=None,
-        help="Write somewhere other than the transcript's own analysis folder",
-    )
-    tidy_parser.add_argument(
         "--json", action="store_true", help="Emit machine-readable JSON on stdout"
     )
 
@@ -809,9 +506,8 @@ def _run_doctor(args: argparse.Namespace) -> int:
 def _run_tools(args: argparse.Namespace) -> int:
     """List, install or remove the managed external programs.
 
-    Exit 0 even when something is missing, for the reason `asr-status` gives:
-    being unset up is a state, not a failure of the command that reports it.
-    `mfp doctor` is what exits 6.
+    Exit 0 even when something is missing: being unset up is a state, not a
+    failure of the command that reports it. `mfp doctor` is what exits 6.
     """
     from mfp import toolchain
 
@@ -864,564 +560,6 @@ def _run_tools(args: argparse.Namespace) -> int:
             print(f"    mfp tools --install {row.name}", file=sys.stderr)
         elif not row.installed and row.homepage:
             print(f"    install it yourself: {row.homepage}", file=sys.stderr)
-    return 0
-
-
-def _run_asr_status(args: argparse.Namespace) -> int:
-    """What `mfp doctor` says about `asr`, with the model half spelled out.
-
-    Exit 0 even when nothing is set up: not being able to transcribe is a
-    state, not a failure, and a non-zero exit here would make a script that
-    merely ASKS the question look like a script that failed. `mfp transcript`
-    is where the refusal lives, and it exits 6.
-    """
-    from mfp.asr_models import human_bytes, readiness
-
-    config = load_config()
-    verdict = readiness(config.asr, config.output_root)
-
-    if args.json:
-        print(verdict.model_dump_json(by_alias=True))
-        return 0
-
-    say = lambda line: print(line, file=sys.stderr)  # noqa: E731
-    engine = verdict.engine
-    say(
-        f"engine: {engine.path or 'not configured'}"
-        + (f"  (faster-whisper {engine.version})" if engine.version else "")
-    )
-    home = verdict.home
-    free = f", {human_bytes(home.free_bytes)} free" if home.free_bytes else ""
-    say(f"models: {home.path}{'' if home.exists else ' (does not exist yet)'}{free}")
-
-    # One block per capability, because a machine can transcribe and not
-    # translate and the two need separate answers -- printing one verdict
-    # for both is what the GUI stopped doing on the same day.
-    in_use = {
-        entry.active.path for entry in verdict.capabilities if entry.active is not None
-    }
-    for entry in verdict.capabilities:
-        mark = "READY" if entry.ready else "NOT READY"
-        say(f"[{mark}] {entry.label} ({entry.what}): {entry.headline}")
-        say(f"    {entry.detail}")
-        for step in entry.steps:
-            say(f"    next: {step.text}")
-
-    say("installed models:")
-    for report in verdict.models:
-        mark = "*" if report.path in in_use else "-"
-        say(f"  {mark} {report.name}  [{report.kind_label}]  {report.summary}")
-        for note in report.notes:
-            say(f"      {note}")
-    if not verdict.models:
-        say("  (empty)")
-    return 0
-
-
-def _run_asr_add(args: argparse.Namespace) -> int:
-    """Bring a downloaded model into the model folder.
-
-    The preflight warnings are printed BEFORE the work rather than returned
-    with the result, and there is no prompt: a CLI invocation that named
-    `--mode move` has already said what it wants, and stopping to ask would
-    make the verb unusable from a script. The GUI is where the confirmation
-    lives, because that is where the choice is being made.
-    """
-    from mfp.asr_models import (
-        human_bytes,
-        install_model,
-        install_preflight,
-        model_home,
-    )
-
-    config = load_config()
-    home = model_home(config.asr, config.output_root)
-    for warning in install_preflight(args.path, home, mode=args.mode):
-        print(f"note: {warning}", file=sys.stderr)
-
-    total = {"copied": 0, "total": 0}
-
-    def on_progress(record: dict) -> None:
-        if record.get("phase") != "copy":
-            return
-        copied, size = record.get("copied", 0), record.get("total", 0) or 1
-        # Tenths, so a 3 GB copy prints ~10 lines instead of ~400.
-        if copied * 10 // size == total["copied"] * 10 // size and copied != size:
-            return
-        total["copied"] = copied
-        print(f"  {copied * 100 // size}% ({human_bytes(copied)})", file=sys.stderr)
-
-    installed = install_model(
-        args.path, home, mode=args.mode, name=args.name, on_progress=on_progress
-    )
-
-    # Selected only when nothing usable was selected before, and into the
-    # field its KIND belongs in -- the same rule the API follows.
-    #
-    # The kind half was missing here until an end-to-end run against a real
-    # NLLB model wrote it into `asr.model` and broke transcription on this
-    # machine (P-45, again: the CLI layer had no test at its own level). The
-    # API route had the rule and its test; this path had neither.
-    from mfp.asr_models import find_installed
-
-    field = "translation_model" if installed.kind == "translation" else "model"
-    chosen = getattr(config.asr, field)
-    if find_installed(home, chosen or "", kind=installed.kind) is None:
-        chosen = installed.name
-        save_config(config.model_copy(
-            update={"asr": config.asr.model_copy(update={field: chosen})}
-        ))
-
-    if args.json:
-        print(installed.model_dump_json(by_alias=True))
-    else:
-        print(f"added: {installed.name} -> {installed.path}", file=sys.stderr)
-        print(f"  {installed.summary}", file=sys.stderr)
-        for note in installed.notes:
-            print(f"  {note}", file=sys.stderr)
-        # Which CAPABILITY it is now in use for, not just "in use": with two
-        # kinds installed, the bare sentence does not say what changed.
-        print(f"  in use as the {installed.kind_label}: {chosen}", file=sys.stderr)
-    return 0
-
-
-def _run_asr_use(args: argparse.Namespace) -> int:
-    """Select a model, and write it into the field its KIND belongs in.
-
-    The kind is read off the model, never asked for. Choosing a translation
-    model and having it land in `asr.model` would break recognition, and a
-    user who typed a name has said nothing about which of the two settings
-    they meant -- the folder they named already answers that.
-    """
-    from mfp.asr_models import find_installed, installed_models, model_home
-
-    config = load_config()
-    home = model_home(config.asr, config.output_root)
-    found = (
-        find_installed(home, args.name, kind="recognition")
-        or find_installed(home, args.name, kind="translation")
-    )
-    if found is None:
-        available = ", ".join(
-            f"{m.name} [{m.kind_label}]" for m in installed_models(home) if m.usable
-        )
-        raise UsageError(
-            f"no usable model called {args.name!r} in {home}. "
-            + (f"Available: {available}" if available else "That folder has none.")
-        )
-    field = "translation_model" if found.kind == "translation" else "model"
-    save_config(config.model_copy(
-        update={"asr": config.asr.model_copy(update={field: found.name})}
-    ))
-    if args.json:
-        print(found.model_dump_json(by_alias=True))
-    else:
-        print(
-            f"now using for {found.kind_label}: {found.name} ({found.path})",
-            file=sys.stderr,
-        )
-    return 0
-
-
-def _translation_runtime(config, named_model: str | None):
-    """The engine and the model both translate verbs need, or a refusal.
-
-    Shared by `translate` and `translate-doc` deliberately: the two refusals
-    below are the only place a user learns that translation needs a SECOND
-    model, and two copies of that sentence is two chances to fix one of them.
-    """
-    from mfp import asr, translate as mt
-    from mfp.asr_models import (
-        find_installed,
-        model_home,
-        readiness,
-        resolve_translation_model,
-    )
-
-    runtime = asr.find_runtime(config.asr.python)
-    if runtime is None:
-        verdict = readiness(config.asr, config.output_root)
-        entry = verdict.capability("translation")
-        raise mt.TranslationUnavailable(
-            (entry.detail if entry else "no engine is set up")
-            + " `mfp asr-status` reports what is missing."
-        )
-
-    if named_model:
-        model = find_installed(
-            model_home(config.asr, config.output_root), named_model, kind="translation"
-        )
-    else:
-        model = resolve_translation_model(config.asr, config.output_root)
-    if model is None:
-        raise mt.TranslationUnavailable(
-            "no translation model is set up. It is a SECOND model, separate "
-            "from the recognition one -- nothing else in this tool needs it. "
-            "`mfp asr-status` says what is there; `mfp asr-add <folder>` "
-            "adds one"
-        )
-    return runtime, model
-
-
-def _run_translate(args: argparse.Namespace) -> int:
-    """Translate a transcript that already exists.
-
-    Refuses rather than improvising when either half is missing, and the two
-    refusals are different sentences: no engine is the same setup step
-    recognition needs, and no translation model is a second, separate one
-    that nothing else in this product requires.
-    """
-    from mfp import runs, translate as mt
-
-    config = load_config()
-    runtime, model = _translation_runtime(config, args.translation_model)
-
-    reporter = _TranscriptConsole()
-    # Before `workspace_for` below, which CREATES a folder for whatever it is
-    # handed: a typo in the path used to leave an empty analysis behind.
-    source = mt.refuse_missing_source(Path(args.source).expanduser())
-    outcome = mt.translate_file(
-        source,
-        # A translation belongs with the transcript it was made from, which
-        # is what `workspace_for` finds. `--out` still overrides, and gets
-        # the same 字幕檔／文字檔 routing -- one layout, no exceptions.
-        out_dir=(
-            runs.refuse_download_tree(config.output_root, args.out)
-            if args.out
-            else runs.workspace_for(config.output_root, source).root
-        ),
-        python_exe=runtime,
-        model_dir=model.path,
-        target=args.target,
-        source_language=args.source_lang,
-        device=config.asr.device,
-        compute_type=config.asr.compute_type,
-        say=reporter.say,
-        on_progress=reporter.translation,
-    )
-    reporter.done()
-
-    if args.json:
-        print(json.dumps({
-            "source": str(outcome.source),
-            "sourceLanguage": outcome.source_language,
-            "targetLanguage": outcome.target_language,
-            "lineCount": outcome.line_count,
-            "suspectLines": [i + 1 for i in outcome.suspect_lines],
-            "clauseSplits": outcome.clause_splits,
-            # The record beside it. Named because a record a caller cannot
-            # locate is half-written: it shares a serial with the output, so
-            # deriving the name would mean re-deriving that serial too.
-            "record": str(outcome.record) if outcome.record else None,
-            "engine": outcome.engine,
-        }, ensure_ascii=False))
-    else:
-        print(
-            f"{outcome.line_count} lines -> {outcome.target_language}: "
-            f"{outcome.source}",
-            file=sys.stderr,
-        )
-    return 0
-
-
-def _run_translate_doc(args: argparse.Namespace) -> int:
-    """Translate a document into a new folder under the output root.
-
-    A NEW folder every time, via `runs.open_run`, for the same reason a
-    second recognition of the same audio gets one: the first translation may
-    already have been edited by hand, and `runs.open_run` only ever creates.
-    """
-    from mfp import runs, translate_doc as td
-
-    config = load_config()
-    runtime, model = _translation_runtime(config, args.translation_model)
-
-    # `open_run` below only ever CREATES, so it must not be reached with a
-    # path this verb is going to decline -- the refusal would arrive one step
-    # later, after an empty analysis folder had been made for it.
-    source = td.refuse_unless_document(Path(args.source).expanduser())
-    if args.out:
-        out_dir = runs.refuse_download_tree(config.output_root, args.out)
-    else:
-        out_dir = runs.open_run(
-            config.output_root, source, stem=source.stem, kind="document", verb='translate-doc').root
-
-    reporter = _TranscriptConsole()
-    outcome = td.translate_document(
-        source,
-        out_dir=out_dir,
-        python_exe=runtime,
-        model_dir=model.path,
-        target=args.target,
-        source_language=args.source_lang,
-        device=config.asr.device,
-        compute_type=config.asr.compute_type,
-        say=reporter.say,
-        on_progress=reporter.translation,
-    )
-    reporter.done()
-
-    if args.json:
-        print(json.dumps({
-            "source": str(outcome.source),
-            "sourceLanguage": outcome.source_language,
-            "targetLanguage": outcome.target_language,
-            "lineCount": outcome.line_count,
-            "suspectLines": [i + 1 for i in outcome.suspect_lines],
-            "clauseSplits": outcome.clause_splits,
-            "record": str(outcome.record) if outcome.record else None,
-            "blocks": outcome.blocks,
-            "verbatimBlocks": outcome.verbatim_blocks,
-            "sentences": outcome.sentences,
-            "engine": outcome.engine,
-        }, ensure_ascii=False))
-    else:
-        print(
-            f"{outcome.sentences} sentences in {outcome.blocks} blocks "
-            f"({outcome.verbatim_blocks} kept verbatim) -> "
-            f"{outcome.target_language}: {outcome.source}",
-            file=sys.stderr,
-        )
-    return 0
-
-
-def _run_both(args: argparse.Namespace, source: Path, cues: list[dict]) -> int:
-    """Correct AND tidy, in one run, writing one set of files.
-
-    Reached from either verb -- `mfp correct --tidy` and `mfp tidy --correct`
-    land here and produce byte-identical output, because the stage order is
-    `refine.ORDER` and not the order the flags were typed in. That is the
-    whole point of the composition: chaining the two verbs by hand gave the
-    same text two names (`.corrected.tidy` one way, `.tidy.corrected` the
-    other) and left the two records indexing two different files.
-    """
-    from mfp import correct as corrector, refine, tidy as tidier
-
-    config = load_config()
-    glossary = corrector.Glossary.load(corrector.glossary_path(config.output_root))
-    fillers = tidier.FillerList.load(tidier.fillers_path(config.output_root))
-    plan = refine.plan(
-        cues,
-        stages=(refine.STAGE_CORRECT, refine.STAGE_TIDY),
-        glossary=glossary,
-        fillers=fillers,
-        exact_only=getattr(args, "exact_only", False),
-    )
-
-    if not args.json:
-        print(corrector.diff(cues, plan.corrections), file=sys.stderr)
-        print("", file=sys.stderr)
-        print(tidier.preview(plan.removals), file=sys.stderr)
-        numbers = tidier.summary(plan.corrected, plan.removals)
-        print(
-            f"\n共 {numbers['cues']} 句：校正 {len(plan.corrections)} 處，"
-            f"刪掉 {numbers['removed']} 句語助詞，剩 {numbers['kept']} 句。",
-            file=sys.stderr,
-        )
-        if not glossary:
-            print("（詞庫是空的，所以什麼都不會被改。"
-                  "用 `mfp correct --enrol <正確詞>=<看到的錯字>` 建立它。）",
-                  file=sys.stderr)
-        if not fillers:
-            print("（語助詞清單是空的，所以什麼都不會被刪。"
-                  "用 `mfp tidy --add-common` 建立它。）", file=sys.stderr)
-
-    payload = refine.offer(source.name, plan, glossary=glossary, fillers=fillers)
-    written: dict[str, Path] = {}
-    if args.apply:
-        written = refine.write(
-            source, plan, glossary=glossary, fillers=fillers,
-            out_dir=runs.refuse_download_tree(config.output_root, args.out) if args.out else None)
-        if not args.json:
-            print(f"\n原檔沒有被更動：{source}", file=sys.stderr)
-            for label, path in written.items():
-                print(f"  {label:10s} {path}", file=sys.stderr)
-    elif not args.json:
-        print("\n（以上都還沒有寫入。確認之後加 --apply。）", file=sys.stderr)
-
-    if args.json:
-        payload["applied"] = bool(written)
-        payload["written"] = {key: str(path) for key, path in written.items()}
-        print(json.dumps(payload, ensure_ascii=False))
-    return 0
-
-
-def _run_tidy(args: argparse.Namespace) -> int:
-    """Propose filler removals, show them, and only then write.
-
-    Same order as `correct`, and stricter about the same thing: this DELETES,
-    so what it removes is shown first, only whole filler cues are eligible,
-    and the record it writes can rebuild the original.
-    """
-    from mfp import tidy as tidier
-    from mfp.translate import read_cues
-
-    config = load_config()
-    store_path = tidier.fillers_path(config.output_root)
-    store = tidier.FillerList.load(store_path)
-
-    changed = bool(args.add or args.forget or args.add_common)
-    if args.add_common:
-        store = store.add(*tidier.COMMON_FILLERS)
-    if args.add:
-        store = store.add(*args.add)
-    if args.forget:
-        store = store.remove(*args.forget)
-    if changed:
-        store.save(store_path)
-        print(f"filler list: {len(store)} term(s) in {store_path}",
-              file=sys.stderr)
-
-    if args.list_terms:
-        if args.json:
-            print(json.dumps({"path": str(store_path), "terms": list(store.terms)},
-                             ensure_ascii=False))
-        else:
-            for term in store.terms:
-                print(f"  {term}")
-            if not store:
-                print("  語助詞清單是空的，所以不會刪掉任何東西。\n"
-                      "  用 `mfp tidy --add-common` 加入常見的，"
-                      "或 `--add <詞>` 自己加。", file=sys.stderr)
-        return 0
-
-    if not args.source:
-        if not changed:
-            print("name a transcript, or use --add / --add-common / --forget "
-                  "/ --list to work on the filler list", file=sys.stderr)
-            return 2
-        return 0
-
-    source = Path(args.source).expanduser()
-    cues = read_cues(source)
-    if not cues:
-        print(f"no cues in {source} -- is it a .srt or .vtt?", file=sys.stderr)
-        return 2
-
-    if args.correct:
-        return _run_both(args, source, cues)
-
-    removals = tidier.propose(cues, store)
-    numbers = tidier.summary(cues, removals)
-
-    if not args.json:
-        print(tidier.preview(removals), file=sys.stderr)
-        if not store:
-            print("\n（語助詞清單是空的，所以什麼都不會被刪。"
-                  "用 `mfp tidy --add-common` 建立它。）", file=sys.stderr)
-        else:
-            print(
-                f"\n{numbers['removed']} of {numbers['cues']} cues are filler "
-                f"({numbers['share']:.0%}); {numbers['kept']} would remain.",
-                file=sys.stderr,
-            )
-
-    written: dict[str, Path] = {}
-    if args.apply and removals:
-        written = tidier.write_pair(
-            source, cues, removals, fillers=store,
-            out_dir=runs.refuse_download_tree(config.output_root, args.out) if args.out else None,
-        )
-        for label, path in written.items():
-            print(f"{label}: {path}", file=sys.stderr)
-    elif args.apply:
-        print("nothing to remove, so nothing was written", file=sys.stderr)
-    elif removals:
-        print("nothing written -- add --apply to write the tidied copy",
-              file=sys.stderr)
-
-    if args.json:
-        payload = tidier.record(cues, removals, source=source.name, fillers=store)
-        payload["applied"] = bool(written)
-        payload["written"] = {k: str(v) for k, v in written.items()}
-        print(json.dumps(payload, ensure_ascii=False))
-    return 0
-
-
-def _run_correct(args: argparse.Namespace) -> int:
-    """Propose term corrections, disclose them, and only then write.
-
-    The order is the feature. D-115 built the version that decided and
-    applied in one step, and every firing on real data damaged correct text --
-    so this prints a diff and stops unless it is told otherwise, and what it
-    writes goes beside the original rather than over it.
-    """
-    from mfp import correct as corrector
-    from mfp.translate import read_cues
-
-    config = load_config()
-    store_path = corrector.glossary_path(config.output_root)
-    store = corrector.Glossary.load(store_path)
-
-    for pair in args.enrol:
-        term, _, wrong = pair.partition("=")
-        store = store.enrol(term, wrong)
-    for term in args.forget:
-        store = store.remove(term)
-    if args.enrol or args.forget:
-        store.save(store_path)
-        print(f"glossary: {len(store.entries)} term(s) in {store_path}",
-              file=sys.stderr)
-
-    if args.list_terms:
-        if args.json:
-            print(json.dumps({"path": str(store_path),
-                              "entries": [e.as_dict() for e in store.entries]},
-                             ensure_ascii=False))
-        else:
-            for entry in store.entries:
-                seen = f"  (也見過: {', '.join(entry.aliases)})" if entry.aliases else ""
-                print(f"  {entry.term}{seen}")
-            if not store.entries:
-                print("  詞庫是空的。用 --enrol 加入術語。", file=sys.stderr)
-        return 0
-
-    if not args.source:
-        if not args.enrol and not args.forget:
-            print("name a transcript, or use --enrol / --forget / --list to "
-                  "work on the glossary", file=sys.stderr)
-            return 2
-        return 0
-
-    source = Path(args.source).expanduser()
-    cues = read_cues(source)
-    if not cues:
-        print(f"no cues in {source} -- is it a .srt or .vtt?", file=sys.stderr)
-        return 2
-
-    if args.tidy:
-        return _run_both(args, source, cues)
-
-    proposals = corrector.propose(cues, store, allow_phonetic=not args.exact_only)
-
-    if args.json:
-        payload = corrector.patch(cues, proposals, source=source.name,
-                                  glossary=store)
-        payload["applied"] = bool(args.apply)
-    else:
-        print(corrector.diff(cues, proposals), file=sys.stderr)
-        if not store:
-            print("\n（詞庫是空的，所以什麼都不會被改。"
-                  "用 `mfp correct --enrol <正確詞>=<看到的錯字>` 建立它。）",
-                  file=sys.stderr)
-
-    if not args.apply:
-        if args.json:
-            print(json.dumps(payload, ensure_ascii=False))
-        elif proposals:
-            print("\n（以上都還沒有寫入。確認之後加 --apply。）", file=sys.stderr)
-        return 0
-
-    written = corrector.write_pair(
-        source, cues, proposals, glossary=store,
-        out_dir=runs.refuse_download_tree(config.output_root, args.out) if args.out else None)
-    if args.json:
-        payload["written"] = {k: str(v) for k, v in written.items()}
-        print(json.dumps(payload, ensure_ascii=False))
-    else:
-        print(f"\n原檔沒有被更動：{source}", file=sys.stderr)
-        for label, path in written.items():
-            print(f"  {label:10s} {path}", file=sys.stderr)
     return 0
 
 
@@ -1634,12 +772,83 @@ def _warn_unheard_audio_language(outcomes, wanted: str | None) -> None:
                 break
 
 
+def _caption_language(args: argparse.Namespace) -> str | None:
+    """What `--write-subs` and `--sub-lang` add up to, or None for neither.
+
+    `--sub-lang ja` implies `--write-subs`, because naming the track you
+    want and not getting a file would be a flag that reads as honoured and
+    is not. The other order is the default: `--write-subs` alone is `orig`,
+    the language the video was spoken in.
+    """
+    from mfp.captions import ORIGINAL_LANG
+
+    if getattr(args, "sub_lang", None):
+        return args.sub_lang
+    return ORIGINAL_LANG if getattr(args, "write_subs", False) else None
+
+
+def _warn_no_captions(outcomes, wanted: str | None) -> None:
+    """Say so when captions were asked for and the post has none to give.
+
+    `_warn_unheard_audio_language`'s reason exactly: the flag is a request,
+    and a run that quietly saves no caption file looks the same as a run
+    nobody asked. Downloading the media anyway is right -- refusing a video
+    because it has no subtitles would be worse -- but silence would make
+    the flag look honoured (D-109, steering is not verification).
+
+    The manifest is what is read rather than the disk, because this is the
+    answer at PROBE time and it is the same answer `--dry-run` gives.
+    """
+    if not wanted:
+        return
+
+    from mfp.captions import CAPTION_KINDS, ORIGINAL_LANG
+
+    named = "" if wanted == ORIGINAL_LANG else f"{wanted} "
+    for outcome in outcomes:
+        manifest = getattr(outcome, "manifest", None)
+        if manifest is None:
+            continue
+        if any(
+            sidecar.kind in CAPTION_KINDS
+            for item in manifest.items
+            for sidecar in item.sidecars
+        ):
+            continue
+        # Q2: two different answers for two different facts. `captions_unconfirmed`
+        # means the platform's own payload could not settle "none" from
+        # "could not ask" even after a second read (P-84/D-155) -- naming that
+        # cause as an ordinary "no captions offered" would be the exact error
+        # D-155 forbids, a message claiming a cause the program never determined.
+        if getattr(manifest, "captions_unconfirmed", False):
+            platform = getattr(getattr(manifest, "source", None), "platform", None) or "the platform"
+            print(
+                f"caption list for {outcome.url} came back empty twice, and "
+                f"{platform} answers a refusal the same way, so whether it "
+                "has captions is not known; nothing will be saved beside the "
+                "media",
+                file=sys.stderr,
+            )
+            continue
+        # One sentence for both verbs. `probe` records no track and `fetch`
+        # saves no file, and neither of them fails over it -- so a line that
+        # named the download would be wrong half the time it printed.
+        print(
+            f"no {named}captions offered for {outcome.url}; "
+            "nothing will be saved beside the media",
+            file=sys.stderr,
+        )
+
+
 def _run_probe(args: argparse.Namespace) -> int:
     from mfp.pipeline import build_context, probe_exit_code, probe_urls
 
     config = load_config()
     adapter_for, forced = _resolve_adapters(args.platform)
-    ctx = build_context(config, audio_language=args.audio_lang)
+    caption_language = _caption_language(args)
+    ctx = build_context(
+        config, audio_language=args.audio_lang, caption_language=caption_language
+    )
 
     batch = probe_urls(
         args.urls,
@@ -1649,6 +858,7 @@ def _run_probe(args: argparse.Namespace) -> int:
         on_start=lambda url: print(f"probing {url}", file=sys.stderr),
     )
     _warn_unheard_audio_language(batch.outcomes, args.audio_lang)
+    _warn_no_captions(batch.outcomes, caption_language)
 
     if args.json:
         print(json.dumps(batch.to_payload(), ensure_ascii=False))
@@ -1687,11 +897,28 @@ def _run_fetch(args: argparse.Namespace) -> int:
     except ValueError as exc:
         raise UsageError(str(exc)) from exc
 
+    caption_language = _caption_language(args)
+    if args.manifest and caption_language:
+        # Not a silent no-op. Caption tracks are discovered during the probe
+        # and recorded in the manifest; a saved manifest that has none cannot
+        # grow one here without a second read of the page, which is the
+        # request `--manifest` exists to avoid (§4.1). A manifest that DOES
+        # carry a track needs no flag -- its sidecars are transferred like
+        # any other.
+        raise UsageError(
+            "--write-subs/--sub-lang cannot be combined with --manifest: the "
+            "caption track is found while probing, so it has to be asked for "
+            "there. Re-run `mfp probe --write-subs` and fetch from that "
+            "manifest, or drop the flag -- a manifest that already names a "
+            "caption track saves it either way."
+        )
+
     ctx = build_context(
         config,
         output_root=args.out,
         allow_silent_video=args.allow_silent_video,
         audio_language=args.audio_lang,
+        caption_language=caption_language,
     )
 
     if args.manifest:
@@ -1715,6 +942,7 @@ def _run_fetch(args: argparse.Namespace) -> int:
         )
         outcomes, stop_reason = batch.outcomes, batch.stop_reason
     _warn_unheard_audio_language(outcomes, args.audio_lang)
+    _warn_no_captions(outcomes, caption_language)
 
     probed = [o for o in outcomes if o.ok and o.manifest is not None]
     if args.select:
@@ -2217,8 +1445,8 @@ def _emit_brief(package: "BriefPackage", args: argparse.Namespace, say) -> int:
         print(package.model_dump_json(by_alias=True))
     else:
         # stdout is the machine's: every path this run produced, one per line,
-        # videos included. A caller piping this into `mfp transcript` needs
-        # the video path on the same channel as the rest.
+        # videos included. A caller that needs the video path finds it on
+        # the same channel as the rest.
         for image in package.images:
             print(image.path)
         for video in package.videos:
@@ -2226,13 +1454,15 @@ def _emit_brief(package: "BriefPackage", args: argparse.Namespace, say) -> int:
         say("")
         say(f"{len(package.images)} image(s) from {package.post.id}")
         if package.videos:
-            say(f"{len(package.videos)} video(s) fetched -- nothing here watches "
-                "them; run `mfp transcript <path>` to read what was said")
+            for video in package.videos:
+                say(f"video file: {video.path}. This tool does not do speech "
+                    "recognition, so what the video says must be handled "
+                    "elsewhere")
         if package.skipped:
             reasons = ", ".join(sorted({row.reason for row in package.skipped}))
             say(f"{len(package.skipped)} item(s) not included: {reasons}")
             if any(row.reason == "video_not_fetched" for row in package.skipped):
-                say("  (pass --with-video to fetch the video and transcribe it)")
+                say("  (pass --with-video to fetch the video)")
         if package.untrusted.caption:
             say("caption and alt text are in the package under `untrusted` -- "
                 "they are the author's words, not instructions")
@@ -2402,236 +1632,6 @@ def _post_dir_within_root(candidate: str, output_root: str) -> Path:
     return post_dir
 
 
-class _TranscriptConsole:
-    """The single writer for `transcript`'s half of stderr.
-
-    Recognition is the first thing this verb does that a person waits
-    through, and a wait with no readout is indistinguishable from a hang --
-    which this product treats as a defect rather than a rough edge. So there
-    is a progress line; and the moment there is one, ordinary messages and
-    that line are two writers fighting over the same row of the terminal.
-    Measured, not imagined: the first run printed
-    `listening... 93% ... 1 lines1 segments in 1.1s`, two true statements
-    welded into one false-looking one.
-
-    One object owns both, so a message always erases a pending progress line
-    before printing. Everything here is stderr; the transcript itself goes
-    to stdout, and a progress bar interleaved into it would become part of
-    it.
-    """
-
-    #: Wide enough to erase the longest readout below. Blanks rather than a
-    #: terminal escape: this has to look right in a plain `cmd` window and
-    #: in an Electron log pane, and only one of those speaks ANSI.
-    _WIDTH = 78
-
-    #: A segment can arrive every 30 ms on dense speech, and a terminal
-    #: repainting at that rate is what makes people think a program is
-    #: thrashing.
-    _INTERVAL_S = 0.5
-
-    def __init__(self) -> None:
-        self._pending = False
-        self._last = 0.0
-        self._started: float | None = None
-
-    def say(self, message: str) -> None:
-        if self._pending:
-            print("\r" + " " * self._WIDTH + "\r", end="", file=sys.stderr)
-            self._pending = False
-        print(message, file=sys.stderr, flush=True)
-
-    def progress(self, record: dict) -> None:
-        if record.get("phase") != "segment":
-            return
-        now = time.monotonic()
-        if self._started is None:
-            # The first segment, not the first record: everything before it
-            # is decode and model load, which run at a different speed and
-            # would make the first estimate wildly pessimistic.
-            self._started = now
-        if now - self._last < self._INTERVAL_S:
-            return
-        self._last = now
-        at = float(record.get("at") or 0.0)
-        duration = float(record.get("duration") or 0.0)
-        share = f"{at / duration:.0%}" if duration > 0 else "??%"
-        print(
-            f"\r  listening... {share} ({_clock(at)} of {_clock(duration)}), "
-            f"{record.get('lines', 0)} lines{self._eta(now, at, duration)}",
-            end="", file=sys.stderr, flush=True,
-        )
-        self._pending = True
-
-    def _eta(self, now: float, at: float, duration: float) -> str:
-        """`, ~12:30 left` once there is enough to say it with.
-
-        A percentage answers "how far", which is the wrong question when the
-        wait is an hour. Whisper runs at a roughly steady multiple of
-        realtime once the model is loaded, so elapsed-per-second-of-audio
-        extrapolates honestly -- and the estimate is withheld until 20
-        seconds of audio are done, because the first few segments make it
-        swing by minutes.
-        """
-        elapsed = now - (self._started or now)
-        if duration <= 0 or at < 20.0 or elapsed <= 0:
-            return ""
-        remaining = (duration - at) * (elapsed / at)
-        if remaining < 30:
-            return ""
-        return f", ~{_clock(remaining)} left"
-
-    def done(self) -> None:
-        """Erase a half-written progress line before anything else prints.
-
-        Needed because the readout is a carriage return with no newline: the
-        last one written stays on the terminal, and whatever comes next --
-        a shell prompt, the summary line -- lands on top of it. `say` already
-        does this before every message; this is the same thing for the end of
-        a run, where there is no next message.
-        """
-        if self._pending:
-            print("\r" + " " * self._WIDTH + "\r", end="", file=sys.stderr)
-            self._pending = False
-
-    def translation(self, record: dict) -> None:
-        """The same readout for a different unit of work.
-
-        Lines rather than seconds, because translation has no notion of the
-        audio's length -- and a bar measured in the wrong unit is worse than
-        one measured in a coarse one.
-        """
-        if record.get("phase") != "line":
-            return
-        now = time.monotonic()
-        if now - self._last < self._INTERVAL_S:
-            return
-        self._last = now
-        done = int(record.get("done") or 0)
-        total = int(record.get("total") or 0)
-        share = f"{done / total:.0%}" if total > 0 else "??%"
-        print(
-            f"\r  translating... {share} ({done}/{total} lines)",
-            end="", file=sys.stderr, flush=True,
-        )
-        self._pending = True
-
-
-def _clock(seconds: float) -> str:
-    """`m:ss`, matching what the transcript itself prints."""
-    total = int(seconds)
-    minutes, secs = divmod(total, 60)
-    hours, minutes = divmod(minutes, 60)
-    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"
-
-
-def _run_transcript(args: argparse.Namespace) -> int:
-    """Read a video's words out loud, as it were.
-
-    The text goes to STDOUT and everything about it to stderr, same contract
-    as every other verb: this output is meant to be piped into a file or a
-    reader, and a "fetching captions…" line in the middle of a transcript
-    would be part of the transcript.
-    """
-    from mfp import transcript as tx
-
-    config = load_config()
-    out_root = args.out_root or config.output_root
-    console = _TranscriptConsole()
-    say = console.say
-
-    if args.list:
-        if "://" not in args.target:
-            raise UsageError(
-                "--list needs a post URL: which tracks exist is a question "
-                "about the video, and a local caption file is one track that "
-                "already got chosen"
-            )
-        tracks = tx.available_tracks(args.target, yt_dlp=config.binaries.yt_dlp)
-        logs.annotate(
-            written=len(tracks["written"]), automatic=tracks["automaticCount"]
-        )
-        if args.json:
-            print(json.dumps({"tracks": tracks}, ensure_ascii=False))
-            return 0
-        print(f"{tracks['title'] or args.target}", file=sys.stderr)
-        print(f"spoken language: {tracks['spokenLanguage'] or 'not reported'}",
-              file=sys.stderr)
-        print("written captions: "
-              + (", ".join(tracks["written"]) if tracks["written"] else "none"))
-        # The machine translations are a hundred rows of noise; the original
-        # is the only automatic track anybody wants named.
-        original = ", ".join(tracks["automaticOriginal"]) or "none"
-        print(f"automatic captions: {tracks['automaticCount']} tracks "
-              f"(original: {original})")
-        return 0
-
-    asr_config = config.asr
-    if args.asr_model:
-        asr_config = asr_config.model_copy(update={"model": args.asr_model})
-
-    result = tx.load(
-        args.target,
-        output_root=out_root,
-        sub_lang=args.sub_lang,
-        start=tx.parse_timecode(args.start) if args.start else 0.0,
-        end=tx.parse_timecode(args.end) if args.end else None,
-        yt_dlp=config.binaries.yt_dlp,
-        refresh=args.refresh,
-        recognize=args.recognize,
-        asr_config=asr_config,
-        asr_language=args.asr_language,
-        asr_languages=args.asr_languages,
-        say=say,
-        on_progress=console.progress,
-    )
-    logs.annotate(
-        source=str(result.source), kind=result.kind,
-        language=result.language, lines=len(result.lines),
-    )
-
-    if args.json:
-        print(tx.as_json(result))
-        return 0
-
-    text = tx.render(result, args.format)
-    say(tx.summary(result))
-    if args.out:
-        target = runs.refuse_download_tree(config.output_root, args.out)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(text, encoding="utf-8")
-        say(f"wrote {target}")
-    print(text)
-    # The one thing the reader is going to want next, spelled out rather than
-    # left to be reconstructed: this is the command that turns a window of
-    # what they just read into the quote image.
-    #
-    # Withheld for audio with no picture, because there is nothing to stack.
-    # A hint naming a command that cannot work is worse than no hint: it
-    # sends the reader to debug their invocation of an impossibility.
-    if _stackable(args.target):
-        say(
-            f'to quote a part of it: mfp stack "{args.target}" '
-            f'--subs "{result.source}" --from <start> --to <end>'
-        )
-    else:
-        say(f"the caption file is at: {result.source}")
-    return 0
-
-
-def _stackable(target: str) -> bool:
-    """Whether `mfp stack` could make an image out of this source.
-
-    A URL might be anything, so it gets the benefit of the doubt; a local
-    file with an audio-only extension definitively could not.
-    """
-    from mfp.asr import AUDIO_SUFFIXES
-
-    if "://" in target:
-        return True
-    return Path(target).suffix.lower() not in AUDIO_SUFFIXES
-
-
 _HANDLERS = {
     "doctor": _run_doctor,
     "tools": _run_tools,
@@ -2643,14 +1643,6 @@ _HANDLERS = {
     "brief": _run_brief,
     "brief-save": _run_brief_save,
     "analyzed": _run_analyzed,
-    "transcript": _run_transcript,
-    "asr-status": _run_asr_status,
-    "asr-add": _run_asr_add,
-    "asr-use": _run_asr_use,
-    "translate": _run_translate,
-    "translate-doc": _run_translate_doc,
-    "correct": _run_correct,
-    "tidy": _run_tidy,
     "agent-guide": _run_agent_guide,
     "agent-register": _run_agent_register,
     "install-path": _run_install_path,

@@ -23,9 +23,6 @@
  */
 
 import type {
-  AsrInstallProgress,
-  AsrProgress,
-  MtProgress,
   BudgetWait,
   Notice,
   QueueStats,
@@ -62,24 +59,9 @@ export interface EventHandlers {
    *  connection per tab is the budget, and the workspace is not worth
    *  a second one. */
   onStackJob?: (job: StackJob) => void;
-  /** How far a transcription has got. Same stream as everything else: the
-   *  budget is one connection per tab, and progress for a request that is
-   *  already in flight does not earn a second one. */
-  onAsrProgress?: (progress: AsrProgress) => void;
-  /** Bytes copied while a model is being brought into the model folder.
-   *  A 3 GB copy is minutes, and it earns the same treatment recognition
-   *  got: a moving number rather than a frozen dialog. */
-  onAsrInstall?: (progress: AsrInstallProgress) => void;
-  /** Bytes moving while yt-dlp or ffmpeg is being fetched. Its own event
-   *  rather than sharing `asrInstall`: a person setting the app up for the
-   *  first time is not setting up recognition, and one reader for both
-   *  would have to guess which panel the frame belonged to. */
+  /** Bytes moving while yt-dlp or ffmpeg is being fetched: a moving number
+   *  rather than a frozen dialog for a person setting the app up. */
   onToolInstall?: (progress: ToolInstallProgress) => void;
-  /** How many lines a translation has got through. Its own event rather
-   *  than sharing `asr`: the two can never be in flight together, but they
-   *  count different things and one reader would have to guess which unit
-   *  had arrived. */
-  onTranslate?: (progress: MtProgress) => void;
   onStatus?: (status: StreamStatus) => void;
 }
 
@@ -164,10 +146,7 @@ export function subscribeEvents(
     bind<BudgetWait>(next, "budgetWait", handlers.onBudgetWait);
     bind<Notice>(next, "notice", handlers.onNotice);
     bind<StackJob>(next, "stack", handlers.onStackJob);
-    bind<AsrProgress>(next, "asr", handlers.onAsrProgress);
-    bind<AsrInstallProgress>(next, "asrInstall", handlers.onAsrInstall);
     bind<ToolInstallProgress>(next, "toolInstall", handlers.onToolInstall);
-    bind<MtProgress>(next, "mt", handlers.onTranslate);
     // No handler: a ping carries no information beyond "still here", which
     // `sawFrame` has already recorded by the time we get here.
     bind<unknown>(next, "ping", undefined);

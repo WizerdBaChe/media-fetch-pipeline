@@ -16,9 +16,9 @@
  * rather than clearing itself: a transfer that ended while the user was
  * somewhere else must still be there when they come back.
  *
- * Deliberately an entity and deliberately generic. `features/setup-asr` writes
- * to it (a feature may reach down to an entity) and `widgets/status-bar` reads
- * it, so the two never meet. Nothing here knows what a model is.
+ * Deliberately an entity and deliberately generic. `features/setup-tools`
+ * writes to it (a feature may reach down to an entity) and `widgets/status-bar`
+ * reads it, so the two never meet. Nothing here knows what is being installed.
  */
 
 import { create } from "zustand";
@@ -28,7 +28,7 @@ export type JobPhase = "running" | "done" | "failed";
 export interface BackgroundJob {
   /** Stable per piece of work, so a second event finds the same entry. */
   id: string;
-  /** What is happening, in the user's words. 「下載 辨識模型 large-v3」 */
+  /** What is happening, in the user's words. 「安裝影片下載引擎」 */
   label: string;
   /** The line underneath: bytes, percentage, or why it failed. */
   detail: string | null;

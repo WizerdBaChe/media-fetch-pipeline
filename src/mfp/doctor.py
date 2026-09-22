@@ -568,52 +568,6 @@ def check_chrome(chrome_config: ChromeConfig) -> DoctorCheck:
     )
 
 
-def check_asr(config: AppConfig, runner: Runner) -> DoctorCheck:
-    """Whether this machine can turn sound into words.
-
-    Optional by construction (`required=False`): the product downloads and
-    quotes media perfectly well with no engine installed, and reporting a
-    red environment for a capability most runs never touch is how a reader
-    learns to ignore `doctor` -- the same reasoning that keeps gallery-dl
-    off `REQUIRED_BINARIES`.
-
-    The judgement itself is `asr_models.readiness`, not a second copy of it
-    here. It used to be a second copy, and the two drifted exactly as far as
-    you would expect: `doctor` reported a green `asr` row for an engine that
-    had no model, and `mfp transcript` then failed on the same machine. A
-    capability check that can be green while the capability is unavailable is
-    the P-38 shape -- a gate ruling on less than it claims.
-
-    `ok` therefore now means "a transcript would work", which is the only
-    reading of this row anybody ever had.
-    """
-    from mfp.asr_models import readiness
-
-    verdict = readiness(config.asr, config.output_root, runner=runner)
-    engine = verdict.engine
-    # The RECOGNITION entry, not the whole verdict: translation is opt-in
-    # (D-98), and a machine that transcribes perfectly well must not show a
-    # red dependency row because nobody asked it to translate anything.
-    recognition = verdict.capability("recognition")
-    return DoctorCheck(
-        name="asr",
-        found=engine.path is not None,
-        ok=verdict.ready,
-        required=False,
-        path=engine.path,
-        version=engine.version,
-        error_code=None if verdict.ready else "asr_unavailable",
-        # One sentence, plus what to do about it. Same text the GUI shows,
-        # for the same machine, at the same moment.
-        detail=" ".join(
-            [
-                recognition.detail if recognition else "",
-                *(step.text for step in (recognition.steps if recognition else [])),
-            ]
-        ).strip(),
-    )
-
-
 def run_doctor(
     config: AppConfig,
     *,
@@ -656,7 +610,6 @@ def run_doctor(
         ),
         check_js_runtime(active_runner),
         check_chrome(config.chrome),
-        check_asr(config, active_runner),
     ]
 
     for check in checks:

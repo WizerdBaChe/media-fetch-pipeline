@@ -27,6 +27,7 @@ from __future__ import annotations
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -36,11 +37,17 @@ from mfp.adapters.base import FetchContext, PlatformAdapter, standard_fetch
 from mfp.adapters.instagram.chrome import Connector, Launcher
 from mfp.adapters.instagram.sessions import ChromeSessions, PerCallChromeSessions
 from mfp.adapters.instagram.extract import (
+    _build_item,
+    ExtractedPost,
+    author_chain,
     dash_unavailable,
     extract_post_or_raise,
     iter_dash_manifests,
     looks_like_login_wall,
+    outbound_links,
     post_metadata,
+    reply_counts,
+    segment_media_nodes,
 )
 from mfp.adapters import ytdlp
 from mfp import logs
@@ -49,15 +56,19 @@ from mfp.errors import (
     BudgetExhausted,
     LoginWallError,
     MfpError,
+    NoMediaInPost,
     RateLimitedError,
     UpstreamStructureChange,
 )
 from mfp.inputs import identify
 from mfp.models import (
+    ExcludedFormats,
     FetchResult,
     Manifest,
     ManifestSource,
+    MediaItem,
     StrategyAttempt,
+    ThreadSegment,
 )
 from mfp.policy import Policy
 
@@ -75,6 +86,30 @@ SIZE_BUDGET_SECONDS = 10.0
 
 def _now_ms(clock: Callable[[], float]) -> int:
     return int(clock() * 1000)
+
+
+#: The one reason `_build_item` can hold a format back.
+_CROP_REASON = "square_crop_not_rendition"
+
+
+def _merge_excluded(
+    excluded: list[ExcludedFormats], extra_crops: int
+) -> list[ExcludedFormats]:
+    """Add continuation crops to the post's own count, under one reason.
+
+    Summed rather than appended: `Manifest.excluded` is a reason -> count
+    report, and two rows saying `square_crop_not_rendition` would make a
+    reader add them up to find out how many were dropped, or forget to.
+    """
+    if not extra_crops:
+        return excluded
+    merged = [row.model_copy() for row in excluded]
+    for row in merged:
+        if row.reason == _CROP_REASON:
+            row.count += extra_crops
+            return merged
+    merged.append(ExcludedFormats(reason=_CROP_REASON, count=extra_crops))
+    return merged
 
 
 class InstagramAdapter(PlatformAdapter):
@@ -135,6 +170,9 @@ class InstagramAdapter(PlatformAdapter):
         """
         platform = self._platform_of(url)
         attempts: list[StrategyAttempt] = []
+        #: The last rung's own verdict, kept so the terminus below cannot
+        #: overwrite a cause that was determined with one that was not.
+        last_error: MfpError | None = None
 
         for strategy in (self._try_ytdlp, self._try_chrome):
             started = _now_ms(self._clock)
@@ -157,6 +195,7 @@ class InstagramAdapter(PlatformAdapter):
                         duration_ms=_now_ms(self._clock) - started,
                     )
                 )
+                last_error = exc
                 if isinstance(exc, (LoginWallError, RateLimitedError)):
                     # A block signal ends the chain. Retrying through another
                     # rung is more traffic at exactly the wrong moment, and
@@ -187,6 +226,25 @@ class InstagramAdapter(PlatformAdapter):
             manifest.attempts = attempts
             return manifest
 
+        # The terminus is a fallthrough, and a fallthrough may not assert a
+        # cause (D-155, P-88). It knows one thing: every rung failed. When the
+        # last rung -- the one that actually got the page, since the chain is
+        # ordered cheapest to most capable -- already determined something
+        # more specific than "the structure moved", that verdict is what the
+        # caller gets. `no_media_in_post` is the case that made this matter:
+        # raised by `_try_chrome`, it used to be swallowed here and reissued
+        # as exit 5, so fixing the classifier alone would have changed
+        # nothing a user could see.
+        #
+        # yt-dlp cannot win this on its own, and that is the point of taking
+        # the LAST error rather than the most specific one: yt-dlp answering
+        # "no media" about an Instagram post it could not parse is overridden
+        # by whatever Chrome goes on to determine.
+        if last_error is not None and last_error.error_code != UpstreamStructureChange.error_code:
+            last_error.context.setdefault(
+                "attempts", [attempt.model_dump() for attempt in attempts]
+            )
+            raise last_error
         raise UpstreamStructureChange(
             f"every strategy failed for {url}. No Open Graph fallback exists by "
             "ruling (Q2, 2026-08-16): a preview-grade thumbnail reported as "
@@ -206,9 +264,28 @@ class InstagramAdapter(PlatformAdapter):
 
         self._reject_login_wall(html, url)
         shortcode = self._shortcode_of(url)
-        post = extract_post_or_raise(html, shortcode=shortcode)
+        no_media: NoMediaInPost | None = None
+        try:
+            post = extract_post_or_raise(html, shortcode=shortcode)
+        except NoMediaInPost as exc:
+            # The commonest segmented post is a text `1/n` whose pictures are
+            # in the continuation. The classifier is right about the post the
+            # URL names -- it has nothing -- and would be wrong about the
+            # THREAD, so the question is asked again with the chain in view
+            # before the answer is allowed out. `UpstreamStructureChange` is
+            # deliberately not caught: a page whose structure moved cannot be
+            # rescued by reading more of it.
+            post = ExtractedPost(items=[], excluded=[])
+            segments, extra_items, extra_crops = self._continuation(html, first_index=0)
+            if not extra_items:
+                no_media = exc
+        else:
+            segments, extra_items, extra_crops = self._continuation(
+                html, first_index=len(post.items)
+            )
 
         meta = post_metadata(html)
+        stated, seen = reply_counts(html)
         manifest = Manifest(
             source=ManifestSource(
                 platform=platform,
@@ -220,10 +297,23 @@ class InstagramAdapter(PlatformAdapter):
                 author=meta.author,
                 caption=meta.caption,
                 timestamp=meta.timestamp,
+                segments=segments,
+                replies_stated=stated,
+                replies_seen=seen,
+                links=outbound_links(html),
             ),
-            items=post.items,
-            excluded=post.excluded,
+            items=post.items + extra_items,
+            excluded=_merge_excluded(post.excluded, extra_crops),
         )
+        if no_media is not None:
+            # Still `no_media_in_post`, exit 3: for `fetch` and `probe` that is
+            # the true answer, "nothing to download". But the post was READ,
+            # and its words are the whole post -- so the manifest built from
+            # them rides on the error for the one caller whose job is the
+            # words (`brief`). Raising before building it is how a text-only
+            # post became "nothing to explain" (2026-09-22).
+            no_media.text_manifest = manifest
+            raise no_media
         self._note_unreachable_quality(manifest, html)
         self._resolve_unknown_image_sizes(manifest)
         return manifest
@@ -257,6 +347,73 @@ class InstagramAdapter(PlatformAdapter):
         split = urlsplit(url)
         identified = identify(split.hostname or "", split.path, {})
         return identified[1] if identified else url
+
+    @staticmethod
+    def _continuation(
+        html: str, *, first_index: int
+    ) -> tuple[list[ThreadSegment], list[MediaItem], int]:
+        """The author's continuation chain, and the media hanging off it.
+
+        Two rules hold this together and both were user rulings on
+        2026-09-11. Only the AUTHOR's self-replies are collected, so nobody
+        else's words or pictures enter the manifest. And continuation media
+        IS collected (要抓續圖) -- but it arrives as ordinary `MediaItem`s
+        carrying `segment_index`, so no existing consumer's idea of
+        `Manifest.items` changes meaning behind its back: "the post's media"
+        is still sayable as `segment_index == 0`.
+
+        An ordinary post yields `([], [], 0)`. A one-post chain is not a
+        chain, and reporting `segments` of length 1 for every Instagram photo
+        would make the field noise that consumers learn to ignore.
+
+        The third return value is the square-crop count, and it has to
+        travel for the reason `_build_item` says it does: `Manifest.excluded`
+        is what keeps a filtering decision from being a silent one. Dropping
+        it here would make continuation pictures the one place in this
+        adapter where formats are held back and nothing says so.
+        """
+        chain = author_chain(html)
+        if len(chain) < 2:
+            return [], [], 0
+
+        segments: list[ThreadSegment] = []
+        items: list[MediaItem] = []
+        crops = 0
+        index = first_index
+        previous: int | None = None
+        for position, node in enumerate(chain):
+            built: list[MediaItem] = []
+            if position > 0:
+                # Segment 0's media is already in `post.items`, by the
+                # ordinary path, with its excluded-format accounting. Rebuilding
+                # it here would double every picture on the post.
+                for child in segment_media_nodes(node):
+                    item, dropped = _build_item(child, index)
+                    crops += dropped
+                    if item is None:
+                        continue
+                    item.segment_index = position
+                    items.append(item)
+                    built.append(item)
+                    index += 1
+            segments.append(
+                ThreadSegment(
+                    post_id=node.code,
+                    index=position,
+                    text=node.text,
+                    timestamp=datetime.fromtimestamp(
+                        node.taken_at, tz=timezone.utc
+                    ).isoformat(),
+                    gap_seconds=None if previous is None else node.taken_at - previous,
+                    item_count=len(built),
+                )
+            )
+            previous = node.taken_at
+
+        # Segment 0's media went through the ordinary path, so its count is
+        # exactly the number of items that were already there.
+        segments[0].item_count = first_index
+        return segments, items, crops
 
     @staticmethod
     def _reject_login_wall(html: str, url: str) -> None:

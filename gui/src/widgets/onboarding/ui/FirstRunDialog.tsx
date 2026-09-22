@@ -79,7 +79,11 @@ export function FirstRunDialog() {
             programs are here and what installs them" -- a first-run version
             that drifted from the settings version would be two answers to
             one question, and the user would meet both. */}
-        <ToolsPanel heading={false} />
+        {/* `manage={false}`: this screen offers what is MISSING and nothing
+            that changes or deletes what is already there (F11, ruling R4).
+            Still the live panel, not a copy -- one implementation of 「which
+            programs are here」, with one of its powers withheld. */}
+        <ToolsPanel heading={false} manage={false} />
 
         <div className="mfp-modal__actions">
           <Button

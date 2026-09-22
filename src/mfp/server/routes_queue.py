@@ -25,6 +25,10 @@ class AddRequest(CamelModel):
     user can see the change report before anything enters the queue."""
 
     text: str
+    #: 一併存字幕 for this paste only. `None` -- what every existing caller
+    #: sends, since the field is new -- leaves the rows inheriting the global
+    #: setting, so an agent that never heard of captions keeps its behaviour.
+    write_subs: bool | None = None
 
 
 class AddResponse(CamelModel):
@@ -35,6 +39,11 @@ class AddResponse(CamelModel):
 class PatchRequest(CamelModel):
     policy: str | None = None
     clear_policy: bool = False
+    #: Tri-state, so it needs its own clear flag for the same reason
+    #: `clear_policy` exists: `None` on the wire is 「not mentioned in this
+    #: PATCH」 and cannot also mean 「go back to inheriting」.
+    write_subs: bool | None = None
+    clear_write_subs: bool = False
     selected: bool | None = None
     selected_indices: list[int] | None = None
 
@@ -198,7 +207,7 @@ def build_queue_router() -> APIRouter:
             known_ids=queue.known_ids(),
             blocked_platforms=current_blocked_platforms(request),
         )
-        tasks = queue.add_many(result.items)
+        tasks = queue.add_many(result.items, write_subs=body.write_subs)
         queue.save()
         for task in tasks:
             _broadcast_task(request, task)
@@ -215,6 +224,10 @@ def build_queue_router() -> APIRouter:
             queue.set_policy(task_id, None)
         elif body.policy is not None:
             queue.set_policy(task_id, body.policy)
+        if body.clear_write_subs:
+            queue.set_write_subs(task_id, None)
+        elif body.write_subs is not None:
+            queue.set_write_subs(task_id, body.write_subs)
         if body.selected is not None:
             task.selected = body.selected
         if body.selected_indices is not None:

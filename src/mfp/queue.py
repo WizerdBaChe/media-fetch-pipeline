@@ -200,6 +200,13 @@ class Task(CamelModel):
     title: str | None = None
     policy: str | None = None
     policy_pinned: bool = False
+    #: Per-row 「一併存字幕」 override. `None` means inherit the global
+    #: setting, which is the same three-state shape `policy` uses (null =
+    #: inherit) -- a plain `False` here would be indistinguishable from
+    #: 「the user turned it off for this row」 and a later change to the
+    #: global default would silently overrule a deliberate per-row edit.
+    write_subs: bool | None = None
+    write_subs_pinned: bool = False
     variants: list[Variant] = Field(default_factory=list)
     chosen: Variant | None = None
     selected: bool = True
@@ -209,6 +216,11 @@ class Task(CamelModel):
     output_dir: str | None = None
     part_path: str | None = None
     path_degradation: Literal["L0", "L1"] = "L0"
+    #: Q2: mirrors `Manifest.captions_unconfirmed` -- true only when the
+    #: probe that filled this task's fields could not tell "no captions"
+    #: from "could not ask" (P-84). Set from the manifest's own flag, never
+    #: inferred here. Default False keeps every stored queue file valid.
+    captions_unconfirmed: bool = False
     error_code: str | None = None
     created_at: str
     updated_at: str
@@ -373,8 +385,21 @@ class TaskQueue:
         self._tasks[task.id] = task
         return task
 
-    def add_many(self, items: list[ParsedItem]) -> list[Task]:
-        return [self.add(item) for item in items]
+    def add_many(
+        self, items: list[ParsedItem], *, write_subs: bool | None = None
+    ) -> list[Task]:
+        """Add parsed items, optionally pinning 一併存字幕 on all of them.
+
+        `write_subs` is what the user ticked in the add box for THIS paste.
+        `None` leaves every new row inheriting the global setting, which is
+        what a caller that never mentions captions gets.
+        """
+        tasks = [self.add(item) for item in items]
+        if write_subs is not None:
+            for task in tasks:
+                task.write_subs = write_subs
+                task.write_subs_pinned = True
+        return tasks
 
     def transition(self, task_id: str, to_state: TaskState, *, error_code: str | None = None) -> Task:
         """Move a task, rejecting any edge not in LEGAL_TRANSITIONS."""
@@ -468,6 +493,20 @@ class TaskQueue:
         task = self.get(task_id)
         task.policy = policy
         task.policy_pinned = policy is not None
+        task.updated_at = _iso(self._clock())
+        return task
+
+    def set_write_subs(self, task_id: str, write_subs: bool | None) -> Task:
+        """Set a per-row 「一併存字幕」 override and pin it.
+
+        Pinned for the reason `set_policy` is pinned: without it, changing the
+        global setting afterwards would discard a deliberate per-row edit. The
+        difference from `policy` is only that the value is a tri-state rather
+        than a string, so `None` has to be passed explicitly to un-pin.
+        """
+        task = self.get(task_id)
+        task.write_subs = write_subs
+        task.write_subs_pinned = write_subs is not None
         task.updated_at = _iso(self._clock())
         return task
 

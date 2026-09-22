@@ -52,7 +52,8 @@ from pathlib import Path
 from typing import Callable, Literal
 
 from mfp.adapters.base import FetchContext
-from mfp.budget import FetchBudgetGovernor
+from mfp.budget import FetchBudgetGovernor, shared_governor
+from mfp.captions import ORIGINAL_LANG
 from mfp.config import AppConfig
 from mfp.download import ProgressEvent, plan_destinations
 from mfp.errors import MfpError
@@ -105,6 +106,8 @@ class Job:
     url: str
     intent: Intent
     policy: str | None = None
+    #: `None` inherits the global setting; see `Task.write_subs`.
+    write_subs: bool | None = None
     select: tuple[int, ...] | None = None
 
 
@@ -141,7 +144,11 @@ class TaskWorker:
         governor: FetchBudgetGovernor | None = None,
     ) -> None:
         self._queue = queue
-        self._config = config
+        #: The config as it was when this worker was built. Read through the
+        #: `_config` property, which prefers a bound provider -- see
+        #: `bind_config`.
+        self._config_at_build = config
+        self._read_config: Callable[[], AppConfig] | None = None
         self._broadcaster = broadcaster
         # Inline by default, and SERIALISED, which the first version was not.
         #
@@ -171,7 +178,7 @@ class TaskWorker:
         else:
             self._browser = _shared_browser(state_dir)
             self._adapter_for = default_adapter_for(state_dir, sessions=self._browser)
-        self._governor = governor if governor is not None else FetchBudgetGovernor(config)
+        self._governor = governor if governor is not None else shared_governor(config)
         self._jobs: queue_module.Queue[Job | None] = queue_module.Queue()
         #: Probed jobs waiting for bytes. Separate from `_jobs` so a transfer
         #: never waits behind a probe (and a probe never waits behind a
@@ -186,6 +193,36 @@ class TaskWorker:
         self._thread: threading.Thread | None = None
         self._transfer_thread: threading.Thread | None = None
 
+    # --- the settings, as they are NOW ---------------------------------------
+
+    @property
+    def _config(self) -> AppConfig:
+        """The live settings, not the ones this worker was built with.
+
+        `PUT /v1/config` REBINDS `app.state.config` to a new model rather
+        than mutating the old one -- it has to, because a half-applied config
+        is worse than a rejected one. A worker holding the object it was
+        constructed with therefore reads settings that stopped being true the
+        moment the user changed them, and nothing says so: 輸出資料夾 and
+        品質 have both behaved that way since the settings panel shipped, and
+        the caption default would have joined them.
+
+        `_auto_clear_loop` states the rule this restores -- 「a change in
+        Settings must not need a restart」 -- and it is the only place that
+        was keeping it, because it re-reads `app.state` every pass.
+        """
+        read = self._read_config
+        return read() if read is not None else self._config_at_build
+
+    def bind_config(self, read: Callable[[], AppConfig]) -> None:
+        """Point the worker at wherever the live config lives.
+
+        Called by `create_app` once `app.state` exists, which is why this is
+        a second step rather than a constructor argument: the worker is built
+        before the app that holds the config it must follow.
+        """
+        self._read_config = read
+
     # --- submission (owner thread) ------------------------------------------
 
     def submit(self, task: Task, intent: Intent) -> None:
@@ -198,6 +235,7 @@ class TaskWorker:
                 url=task.canonical_url,
                 intent=intent,
                 policy=task.policy,
+                write_subs=task.write_subs,
                 select=tuple(task.selected_indices) if task.selected_indices else None,
             )
         )
@@ -436,6 +474,7 @@ class TaskWorker:
             config=self._config,
             output_root=self._config.output_root,
             select=set(job.select) if job.select else None,
+            caption_language=self._caption_language_for(job),
         )
         # Items are counted rather than read off `item_index`, because
         # `--select` and the GUI's per-row selection both make the indices
@@ -445,6 +484,23 @@ class TaskWorker:
         ctx.on_progress = lambda event: self._on_progress(job, event, tally)
         ctx.cancel = self.is_cancelled(job.task_id)
         return ctx
+
+    def _caption_language_for(self, job: Job) -> str | None:
+        """`ORIGINAL_LANG` when this job should save captions, else None.
+
+        The GUI's toggle is on/off and the language is always the one the
+        video was SPOKEN in -- there is no per-row language, because naming
+        one asks the platform to translate and D-156/P-49 says that has to be
+        deliberate rather than a setting somebody left behind.
+
+        `None` here is what the whole download path already reads as 「do not
+        ask for captions」 (`FetchContext.caption_language`), so nothing
+        downstream needed a new flag.
+        """
+        wanted = job.write_subs
+        if wanted is None:
+            wanted = self._config.write_subs
+        return ORIGINAL_LANG if wanted else None
 
     def _policy_for(self, job: Job):
         raw = job.policy or self._config.policy
@@ -512,6 +568,10 @@ class TaskWorker:
                 "title": manifest.source.caption,
                 "variants": [v for item in manifest.items for v in item.variants],
                 "chosen": chosen[0] if chosen else None,
+                # Q2: only ever copied from the manifest's own flag, never
+                # inferred here (D-155) -- the probe already did the one
+                # determination this task record is allowed to report.
+                "captions_unconfirmed": manifest.captions_unconfirmed,
                 # The earliest expiry, not the latest: the post stops being
                 # fetchable in one piece as soon as the first link dies.
                 "expires_at": expiries[0] if expiries else None,

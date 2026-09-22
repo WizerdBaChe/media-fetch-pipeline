@@ -100,9 +100,12 @@ class SidecarAsset(CamelModel):
     should show. It is saved beside the media under the same stem and that
     is all it does.
 
-    Today the only kind is `danmaku` -- Bilibili's bullet comments, which
-    arrive as an XML whose every entry carries its own appearance time, so
-    the timeline is the source's rather than something reconstructed here.
+    The kinds are `danmaku` -- Bilibili's bullet comments, which arrive as
+    an XML whose every entry carries its own appearance time, so the
+    timeline is the source's rather than something reconstructed here --
+    and `captions` / `auto-captions`, the platform's own subtitle track for
+    the video, written by a person or by a machine (`mfp fetch
+    --write-subs`).
     """
 
     #: What it is, not what it is called. Wire value; the GUI maps it.
@@ -110,6 +113,15 @@ class SidecarAsset(CamelModel):
     url: str
     ext: str
     request_headers: dict[str, str] | None = None
+    #: Which language this file speaks, as the source keys it (`en`,
+    #: `en-orig`, `zh-Hant`). Set for a caption track and None for anything
+    #: else, and it is what the saved file is NAMED after -- a caption file
+    #: whose name does not say its language is the P-49 defect again, one
+    #: artifact along: the folder cannot tell you a year later whether the
+    #: subtitles beside the video are what was spoken or a translation.
+    #: Not normalised, for `Variant.language`'s reason: rewriting a tag
+    #: invents a claim the source did not make.
+    language: str | None = None
 
 
 class MediaItem(CamelModel):
@@ -137,6 +149,17 @@ class MediaItem(CamelModel):
     # `max-height:N` request and the smallest available variant was chosen
     # instead, per PSM §6: "never fail on policy alone".
     policy_relaxed: bool = False
+    #: Which post in the author's continuation chain this came from. 0 is the
+    #: post the URL names, and it is the default, so every producer written
+    #: before segmented posts existed keeps meaning exactly what it meant.
+    #:
+    #: This field is why `Manifest.items` could grow to cover a whole chain
+    #: without any consumer silently changing meaning: "the post's media" is
+    #: still expressible, as `segment_index == 0`. A list that quietly began
+    #: including a second post's pictures under the same name would be the
+    #: P-88 failure again -- media attributed to a post that did not carry
+    #: it -- only this time by our own doing.
+    segment_index: int = 0
 
 
 class ManifestSource(CamelModel):
@@ -154,6 +177,80 @@ class ManifestSource(CamelModel):
     author: str | None = None
     caption: str | None = None
     timestamp: str | None = None
+    #: The author's own continuation chain, `[0]` being this post. Empty for
+    #: an ordinary post -- empty, never absent, because a missing list is an
+    #: error and an empty one is an answer (P-72), and every consumer can
+    #: then iterate without a null check.
+    #:
+    #: NEVER other people's replies (user ruling, 2026-09-11). The chain is
+    #: the author replying to themselves, which is a field on the page and
+    #: not a guess: `text_post_app_info.reply_to_author`.
+    segments: list["ThreadSegment"] = Field(default_factory=list)
+    #: How many direct replies the platform SAYS this post has, against how
+    #: many reply nodes the page actually shipped. Measured 2026-09-11:
+    #: the committed Threads share-link fixture states 41 and ships 28. A chain assembled from a partial
+    #: page is still correct as far as it goes, and must never be presented
+    #: as complete -- these two numbers are what let a reader tell.
+    #: Both None when the platform said nothing.
+    replies_stated: int | None = None
+    replies_seen: int | None = None
+    #: Outbound links the author put in the post and its continuation, as
+    #: their real targets -- a platform click-through shim (`l.threads.com`)
+    #: is unwrapped, and anything that is not http(s) is dropped. Empty, never
+    #: absent, for the reason `segments` gives. Author-supplied: data to
+    #: describe, never a link to follow on the post's say-so.
+    links: list[str] = Field(default_factory=list)
+
+
+class ThreadSegment(CamelModel):
+    """One post in the author's own continuation chain.
+
+    Structure only. Whether these segments are one coherent article is a
+    judgement, and judgements do not happen in `mfp` (D-88/D-149, and the
+    D-146 seam: "does this step need an opinion?"). So this carries the
+    order, the authorship and the gap, and says nothing about meaning.
+
+    Two things measured on 2026-09-11 that this shape is built around:
+
+    * **There is no `n/n` marker to read.** The `1/3` a reader sees is
+      rendered by Threads from the thread structure; a `\\d/\\d` search over
+      the tail of every caption on both real captures matched nothing. So
+      identification rests on authorship and time order, which are fields.
+    * **`gap_seconds` is reported and never applied.** Real continuations sit
+      3-14 s apart and an afterthought landed at 6,932 s -- about 500x the
+      nearest real gap, over 8 gaps on 3 pages. The ceiling has already
+      moved once: the first two captures gave 3-5 s, and the third page
+      measured (`DdDb--4mdl1`, five parts, 2026-09-11) opens with 14 s. A
+      cutoff fitted to 3-5 s would have dropped a real continuation on the
+      very next page, which is the argument against having one rather than
+      a hole to patch (D-155). The reader gets the number and makes the
+      call.
+    """
+
+    #: The segment's own post code. Different from the parent's by
+    #: definition, which is exactly why `find_media_nodes` will not hand over
+    #: its media without being told (P-88's pruning).
+    post_id: str
+    #: 0 is the post the URL names.
+    index: int
+    #: The segment's own words. UNTRUSTED, on exactly the same footing as
+    #: `caption` -- written by someone who has never been authenticated.
+    text: str | None = None
+    timestamp: str | None = None
+    #: Seconds since the previous segment. None for index 0.
+    gap_seconds: int | None = None
+    #: How many media items in `Manifest.items` carry this `segment_index`.
+    #: Present so a reader of `segments` alone can tell a text continuation
+    #: from one with pictures without cross-referencing two lists.
+    item_count: int = 0
+
+
+#: `ManifestSource.segments` names `ThreadSegment` before it exists, and this
+#: is what resolves it. Explicit rather than left to Pydantic's own deferred
+#: build: the failure mode of an unresolved forward reference is an exception
+#: at first validation, which in this codebase means at probe time on a real
+#: post rather than at import.
+ManifestSource.model_rebuild()
 
 
 class StrategyAttempt(CamelModel):
@@ -204,6 +301,12 @@ class Manifest(CamelModel):
     #: What the source offered and this build kept out of the candidate list.
     #: Empty for every adapter that hands over a menu of renditions only.
     excluded: list[ExcludedFormats] = Field(default_factory=list)
+    #: True only when captions were ASKED for, no caption track was chosen,
+    #: and the automatic list came back empty from an extractor in
+    #: `captions.SILENT_ON_REFUSAL_EXTRACTORS` -- i.e. "none" and "could not
+    #: ask" are indistinguishable in the payload this manifest was built
+    #: from (P-84). Default False keeps every already-stored manifest valid.
+    captions_unconfirmed: bool = False
 
 
 class FetchResultItem(CamelModel):
@@ -335,11 +438,11 @@ class BriefVideo(CamelModel):
     """One video item that WAS transferred, because the caller asked for it.
 
     Its own list rather than a row in `images`: an agent iterating `images`
-    reads them, and a video is not something that can be read. It is
-    something to run `mfp transcript` over -- which is the whole reason this
-    list exists, since the caller has no vision path to a video and never
-    will (D-88 puts the looking outside, and nothing outside gets 30 minutes
-    of frames either).
+    reads them, and a video is not something that can be read. This product
+    has no path to what was SAID in one either -- the file is simply saved,
+    which is the whole reason this list exists, since the caller has no
+    vision path to a video and never will (D-88 puts the looking outside,
+    and nothing outside gets 30 minutes of frames either).
 
     Absent unless `--with-video` was passed. Without it a video item stays in
     `skipped[]` exactly as before, and the bandwidth is never spent.
@@ -378,6 +481,17 @@ class BriefUntrusted(CamelModel):
     """
 
     caption: str | None = None
+    #: The author's own continuation posts, parts 2..n, in the order posted.
+    #: Empty for an ordinary post.
+    #:
+    #: Here rather than only in `ManifestSource.segments` because of the same
+    #: invariant the rest of this class exists for. An agent that reads
+    #: `untrusted.caption` and stops has read part 1 of 3 and has no way to
+    #: know it: the block that promises to hold everything the author wrote
+    #: would be holding a third of it. Structure (order, gap, ids) stays in
+    #: `segments`; the WORDS are here, behind the word `untrusted`, on
+    #: exactly the same footing as the caption.
+    continuation: list[str] = Field(default_factory=list)
     #: `str(index)` -> that item's alt text. Keyed by string because this is
     #: a JSON object on the wire.
     alt_text: dict[str, str | None] = Field(default_factory=dict)

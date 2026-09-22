@@ -22,13 +22,11 @@ from mfp.config import AppConfig
 from mfp.errors import MfpError
 from mfp.queue import IllegalTransition, TaskNotFound, TaskQueue
 from mfp.server.events import EventBroadcaster
-from mfp.server.routes_asr import build_asr_router
 from mfp.server.routes_brief import build_brief_router
 from mfp.server.routes_config import build_config_router
 from mfp.server.routes_queue import build_queue_router
 from mfp.server.routes_stack import build_stack_router
 from mfp.server.routes_tools import build_tools_router
-from mfp.server.routes_transcript import build_transcript_router
 from mfp.server.stack_jobs import StackJobRunner
 from mfp.server.security import install_loopback_guard
 
@@ -87,6 +85,14 @@ async def _auto_clear_loop(app_: FastAPI) -> None:
 
 ERROR_STATUS: dict[str, int] = {
     "usage_error": 400,
+    # 400 beside `usage_error`, not 404: the status is about the REQUEST, and
+    # this request is as malformed as one naming a nonexistent field -- it
+    # names a path that is not there. 404 is reserved here for a resource the
+    # server itself keeps (`task_not_found`, `stack_job_not_found`), and
+    # sharing it would say the server had lost something of its own. What
+    # separates this from `usage_error` is the sentence the GUI shows, which
+    # is the whole reason it is a distinct code (UX walkthrough F1).
+    "source_not_found": 400,
     "unsupported_url": 400,
     "path_too_long": 400,
     # 400 with the other "your argument cannot be used" failures: `--out`
@@ -128,22 +134,6 @@ ERROR_STATUS: dict[str, int] = {
     # a fact about the request, not a fault upstream or here.
     "nothing_to_stack": 422,
     "no_subtitle_pixels_in_band": 422,
-    # 422 with them: the transcript was read fine and the reading copy would
-    # not have been a subset of it. A fact about this request's outcome, not
-    # a fault upstream or here -- and never a retry, since the same input
-    # produces the same refusal.
-    "tidy_refused": 422,
-    # Same family, one layer up: each stage checked itself and undoing them
-    # in reverse did not give the original transcript back. Nothing was
-    # written, the same input refuses the same way, so it is never a retry.
-    "refine_refused": 422,
-    # Same family: the video was read fine and simply has no caption track.
-    "no_captions_available": 422,
-    # 503, joining `dependency_missing`: the speech-recognition engine is a
-    # separate install and this machine does not have it. Not 422 -- the
-    # request was fine, the environment is what is missing, and the two call
-    # for different actions from whoever reads it.
-    "asr_unavailable": 503,
     # 500: ffmpeg is installed and ran -- this machine failed at the work.
     # Not 503, which is reserved for a dependency that is not there at all.
     "media_tool_failed": 500,
@@ -158,10 +148,6 @@ ERROR_STATUS: dict[str, int] = {
     # upstream failure, not our bug -- 502, same as the other upstream rows.
     "cdp_timeout": 502,
     "path_escape": 400,
-    # 409, joining `queue_locked`: the edit collided with what is already
-    # in the glossary, and the user is the one who has to decide which of
-    # the two entries survives.
-    "glossary_conflict": 409,
     # G6 §5.1. Detected before the socket is bound, so no client can actually
     # receive it over HTTP -- the row exists so the taxonomy stays complete.
     "queue_locked": 409,
@@ -218,6 +204,10 @@ def create_app(
             # loop, so the queue keeps exactly one writer. Bound here
             # because this is the first moment the loop exists.
             worker.bind_dispatch(asyncio.get_running_loop().call_soon_threadsafe)
+            # And the settings, which `PUT /v1/config` REBINDS rather than
+            # mutates. Without this the worker keeps whatever was true when
+            # the process started -- see `TaskWorker._config`.
+            worker.bind_config(lambda: app_.state.config)
             worker.start()
         stack_runner = app_.state.stack_runner
         stack_runner.bind_dispatch(asyncio.get_running_loop().call_soon_threadsafe)
@@ -234,7 +224,7 @@ def create_app(
 
     app = FastAPI(
         title="media-fetch-pipeline",
-        version="1.0.0",
+        version="2.0.1",
         docs_url=None,
         redoc_url=None,
         lifespan=lifespan,
@@ -270,9 +260,7 @@ def create_app(
 
     app.include_router(build_queue_router(), prefix=API_PREFIX)
     app.include_router(build_stack_router(), prefix=API_PREFIX)
-    app.include_router(build_transcript_router(), prefix=API_PREFIX)
     app.include_router(build_config_router(), prefix=API_PREFIX)
-    app.include_router(build_asr_router(), prefix=API_PREFIX)
     app.include_router(build_brief_router(), prefix=API_PREFIX)
     app.include_router(build_tools_router(), prefix=API_PREFIX)
 

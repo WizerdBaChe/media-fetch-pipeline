@@ -37,12 +37,12 @@ SRC = os.path.join(ROOT, "src")
 #
 # The rule is written down because the list had drifted from it: it carried
 # `mfp.server.app`, `mfp.server.routes_queue` and `mfp.server.routes_config`,
-# which are plain top-level imports in `app.py`, while `routes_stack` and
-# `routes_transcript` -- imported exactly the same way -- were absent. Nothing
-# was broken (verified 2026-08-23: the packaged `mfp.exe` carries the `stack`
-# verb with `routes_stack` unlisted), but two of four routers listed with no
-# stated rule leaves the next person guessing whether a fifth needs a line.
-# It does not. Removed rather than completed, so the list means one thing.
+# which are plain top-level imports in `app.py`, while `routes_stack` --
+# imported exactly the same way -- was absent. Nothing was broken (verified
+# 2026-08-23: the packaged `mfp.exe` carries the `stack` verb with
+# `routes_stack` unlisted), but two of four routers listed with no stated
+# rule leaves the next person guessing whether a fifth needs a line. It does
+# not. Removed rather than completed, so the list means one thing.
 #
 # `uvicorn.protocols.websockets.auto` is not in PSM 9.1's list but is
 # required all the same: uvicorn's default `ws="auto"` imports it during
@@ -73,34 +73,13 @@ EXCLUDES = ["pytest", "_pytest", "PIL._avif"]
 # `agent/SKILL.md` under the bundle root -- `mfp.agent.skill_path()` reads
 # exactly this path when `sys.frozen` is set, and `test_agent_surface.py`
 # pins the expression.
-#
-# `asr/runner.py` travels the same way and for a different reason: it is
-# SOURCE that this interpreter must never import. It runs in a separate
-# venv that has faster-whisper, which this bundle deliberately does not --
-# the engine and its model are several GB against a ~107 MB installer. Ship
-# it as data and PyInstaller never analyses it, so no CUDA runtime is
-# dragged in by a file that only exists to be handed to another Python.
-# `mfp.asr.runner_path()` reads exactly this path when `sys.frozen` is set.
-#
-# `asr/translate_runner.py` rides along for the same reason and reads back
-# through `mfp.translate.runner_path()`. Listed EXPLICITLY rather than
-# globbed `asr/*.py`: a glob would silently start shipping the next file
-# anybody drops in that directory, and this list is the record of what is
-# deliberately inside a 107 MB installer.
-#
-# `asr/fetch_model.py` is the third. It needs `huggingface_hub`, which comes
-# with faster-whisper and lives in the engine venv -- putting the download in
-# `mfp` itself would put that dependency in this installer, which is the
-# whole thing this arrangement exists to avoid.
 DATAS = [
     (os.path.join(ROOT, "skill", "SKILL.md"), "agent"),
     # The 延伸工具 contracts, split out of SKILL.md in M5 (ruling R9).
     #
-    # Globbed, which contradicts the rule stated for `asr/*.py` above -- so
-    # the reason is written down rather than left to look like an oversight.
-    # That rule exists because `asr/` holds SOURCE, and shipping whatever
-    # somebody drops there is how an installer grows a file nobody decided
-    # to include. This directory holds one kind of thing and only that kind:
+    # Globbed, which data files usually should not be -- shipping whatever
+    # somebody drops into a directory is how an installer grows a file nobody
+    # decided to include. This directory holds one kind of thing and only that kind:
     # an agent contract, every one of which must ship or `agent-guide
     # --extension` prints「the packaged guide is missing」on a user's machine
     # and nowhere else. `agent.EXTENSIONS` is the list that decides what
@@ -109,9 +88,6 @@ DATAS = [
         (path, os.path.join("agent", "extensions"))
         for path in glob.glob(os.path.join(ROOT, "skill", "extensions", "*.md"))
     ],
-    (os.path.join(ROOT, "asr", "runner.py"), "asr"),
-    (os.path.join(ROOT, "asr", "translate_runner.py"), "asr"),
-    (os.path.join(ROOT, "asr", "fetch_model.py"), "asr"),
 ]
 
 sidecar_analysis = Analysis(

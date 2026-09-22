@@ -70,6 +70,7 @@ from mfp.models import (
     FetchResultItem,
     Manifest,
     MediaItem,
+    SidecarAsset,
     Variant,
 )
 from mfp.naming import (
@@ -960,6 +961,22 @@ def download_item(
     )
 
 
+def _sidecar_name(stem: str, sidecar: SidecarAsset) -> str:
+    """`talk.en-orig.srt` for a caption track; `BV1x.danmaku.xml` otherwise.
+
+    A caption file is named the way every other caption file this product
+    writes is named. `captions.fetch_captions` lets yt-dlp put the language
+    key between the stem and the extension, and `captions.caption_sidecars`
+    finds a file by exactly that shape -- so a track fetched here is the one
+    `mfp stack` reuses instead of asking the platform for it a second time,
+    and there is one naming convention rather than two (P-70: one piece of
+    content, one name).
+    """
+    if sidecar.language:
+        return f"{stem}.{sidecar.language}.{sidecar.ext}"
+    return f"{stem}.{sidecar.kind}.{sidecar.ext}"
+
+
 def _save_sidecars(item: MediaItem, destination: Path, *, client: httpx.Client) -> None:
     """Save each sidecar beside the media, under the same stem.
 
@@ -973,7 +990,7 @@ def _save_sidecars(item: MediaItem, destination: Path, *, client: httpx.Client) 
     extra that could not be fetched.
     """
     for sidecar in item.sidecars:
-        target = destination.with_name(f"{destination.stem}.{sidecar.kind}.{sidecar.ext}")
+        target = destination.with_name(_sidecar_name(destination.stem, sidecar))
         try:
             transfer_stream(
                 sidecar.url,

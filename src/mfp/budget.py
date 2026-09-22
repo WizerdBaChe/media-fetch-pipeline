@@ -13,10 +13,12 @@ tests run against a simulated clock with zero real sleeping.
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import random
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -46,6 +48,24 @@ def default_state_path() -> Path:
 
 def _iso(epoch_seconds: float) -> str:
     return datetime.fromtimestamp(epoch_seconds, tz=timezone.utc).isoformat()
+
+
+def _serialised(method):
+    """Run `method` holding the governor's lock.
+
+    A decorator rather than a `with` block inside each body, so that adding
+    a fourth entry point is one line and cannot half-happen: the failure
+    this guards against is a method that reads the window, sleeps, and
+    writes it back while another thread does the same, and that is invisible
+    in a diff that merely forgot an indent.
+    """
+
+    @functools.wraps(method)
+    def guarded(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return guarded
 
 
 def _default_emit_event(event: dict[str, object]) -> None:
@@ -78,6 +98,21 @@ class _PlatformState:
 class FetchBudgetGovernor:
     """Sliding-hour, per-run-capped, jittered, cooldown-aware request
     governor. One instance per process; state persists across processes.
+
+    **"One instance per process" is a requirement, not a description**, and
+    `shared_governor()` below is how it is met. The state file is READ at
+    construction and WRITTEN whole from the instance's own view, so two live
+    instances do not share an hour -- each overwrites the other's account of
+    it, and the guard silently under-counts. That is not hypothetical: the
+    caption repair of 2026-09-09 added a second one to the server process
+    before this note existed (P-85).
+
+    Every mutating entry point takes `_lock`. One instance now serves more
+    than one thread -- the worker's probe lane and the transcript route --
+    and `acquire` sleeps for the pacing gap, so the lock is what makes two
+    callers queue behind one another instead of both measuring the same
+    `last_request_at` and going out together. Holding it across the sleep is
+    deliberate: serialising requests IS the guard.
     """
 
     def __init__(
@@ -98,6 +133,7 @@ class FetchBudgetGovernor:
         self._emit_event = emit_event or _default_emit_event
         self._warned_platforms: set[str] = set()
         self._platforms: dict[str, _PlatformState] = {}
+        self._lock = threading.RLock()
         self._load()
 
     # -- persistence ---------------------------------------------------
@@ -153,6 +189,7 @@ class FetchBudgetGovernor:
 
     # -- public API ------------------------------------------------------
 
+    @_serialised
     def acquire(self, platform: str) -> None:
         """Reserve one request slot for `platform`, sleeping as needed to
         respect the configured cadence. Raises `BudgetExhausted` if the
@@ -224,6 +261,7 @@ class FetchBudgetGovernor:
         state.last_request_at = request_time
         self._persist()
 
+    @_serialised
     def report_block(self, platform: str) -> None:
         """Record a detected block signal for `platform`: enter cooldown
         and emit a `budget_blocked` event. Does not raise -- the caller
@@ -242,6 +280,7 @@ class FetchBudgetGovernor:
         )
         self._persist()
 
+    @_serialised
     def snapshot(self, platform: str) -> BudgetSnapshot:
         """Return the current observable state for `platform` without
         mutating request counters (pruning the sliding window is the only
@@ -277,3 +316,45 @@ class FetchBudgetGovernor:
             warning_active=occupancy >= _WARNING_THRESHOLD,
             cooldown_until=cooldown_until_iso,
         )
+
+
+_SHARED: FetchBudgetGovernor | None = None
+_SHARED_LOCK = threading.Lock()
+
+
+def shared_governor(config: AppConfig) -> FetchBudgetGovernor:
+    """The process's one governor, built on first call.
+
+    Every default construction goes through here -- the worker's, the
+    pipeline's, and the caption reader's -- because the class's own
+    invariant is one instance per process and three modules each saying
+    `FetchBudgetGovernor(config)` is three instances that overwrite each
+    other's window (P-85). Anything that wants its OWN governor still passes
+    one in; that is what every test and the injected-clock suite do, and it
+    is why this is a default rather than a constructor guard.
+
+    **The first caller's config wins**, and that is stated rather than
+    solved: budget limits are not editable from the GUI, every caller reads
+    the same `config.json`, and a governor that swapped its limits under a
+    sliding window already half full would be a worse answer than a stale
+    one. If limits ever become user-editable, this is the line that has to
+    change -- along with `TaskWorker`'s, for the same reason P-81 exists.
+    """
+    global _SHARED
+    with _SHARED_LOCK:
+        if _SHARED is None:
+            _SHARED = FetchBudgetGovernor(config)
+        return _SHARED
+
+
+def reset_shared_governor() -> None:
+    """Forget the process governor. For tests, and named so it reads as one.
+
+    The suite runs thousands of tests in ONE process, so without this the
+    first test to build a governor would lend its sliding window to every
+    test after it -- which is the same class of leak `tests/conftest.py`
+    already guards for the log directory and the speech engine.
+    """
+    global _SHARED
+    with _SHARED_LOCK:
+        _SHARED = None
