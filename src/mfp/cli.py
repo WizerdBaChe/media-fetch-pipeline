@@ -820,13 +820,21 @@ def _warn_no_captions(outcomes, wanted: str | None) -> None:
         # "could not ask" even after a second read (P-84/D-155) -- naming that
         # cause as an ordinary "no captions offered" would be the exact error
         # D-155 forbids, a message claiming a cause the program never determined.
+        #
+        # What the sentence may assert is what has been MEASURED: the same
+        # video answered 158 automatic tracks and an empty list within one
+        # day (P-84), and on 2026-09-23 every player client and a real
+        # browser were told the same empty thing (P-95). So the platform
+        # demonstrably empties the list for videos that do have captions --
+        # that is a fact. WHY it does is not, and this sentence used to say
+        # 「a refusal looks like this」, a cause nobody has ever observed.
         if getattr(manifest, "captions_unconfirmed", False):
             platform = getattr(getattr(manifest, "source", None), "platform", None) or "the platform"
             print(
                 f"caption list for {outcome.url} came back empty twice, and "
-                f"{platform} answers a refusal the same way, so whether it "
-                "has captions is not known; nothing will be saved beside the "
-                "media",
+                f"{platform} sometimes returns an empty list for a video that "
+                "does have captions, so whether this one has any is not "
+                "known; nothing will be saved beside the media",
                 file=sys.stderr,
             )
             continue

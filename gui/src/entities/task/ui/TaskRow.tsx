@@ -106,7 +106,7 @@ export function TaskRow({
            *  is not ambiguous, it is simply unasked. */}
           {task.captionsUnconfirmed === true && effectiveWriteSubs && (
             <span className="mfp-row__note" data-testid="captions-unconfirmed">
-              字幕清單問了兩次都是空的，平台拒絕回答時也會這樣，所以無法確定這支影片有沒有字幕，這次沒有存字幕檔。
+              字幕清單問了兩次都是空的，平台有時會對確實有字幕的影片回空清單，所以無法確定這支影片有沒有字幕，這次沒有存字幕檔。
             </span>
           )}
         </span>

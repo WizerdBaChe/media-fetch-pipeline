@@ -303,9 +303,10 @@ class Manifest(CamelModel):
     excluded: list[ExcludedFormats] = Field(default_factory=list)
     #: True only when captions were ASKED for, no caption track was chosen,
     #: and the automatic list came back empty from an extractor in
-    #: `captions.SILENT_ON_REFUSAL_EXTRACTORS` -- i.e. "none" and "could not
-    #: ask" are indistinguishable in the payload this manifest was built
-    #: from (P-84). Default False keeps every already-stored manifest valid.
+    #: `captions.UNTRUSTWORTHY_EMPTY_CAPTIONS_EXTRACTORS` -- i.e. "none" and
+    #: "could not ask" are indistinguishable in the payload this manifest was
+    #: built from (P-84). Default False keeps every already-stored manifest
+    #: valid.
     captions_unconfirmed: bool = False
 
 

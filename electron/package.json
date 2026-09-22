@@ -1,7 +1,7 @@
 {
   "name": "mfp-desktop",
   "productName": "媒體擷取",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "private": true,
   "description": "Desktop shell for media-fetch-pipeline",
   "author": "media-fetch-pipeline",

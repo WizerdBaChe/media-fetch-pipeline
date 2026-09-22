@@ -228,7 +228,7 @@ def create_app(
 
     app = FastAPI(
         title="media-fetch-pipeline",
-        version="2.0.2",
+        version="2.0.3",
         docs_url=None,
         redoc_url=None,
         lifespan=lifespan,

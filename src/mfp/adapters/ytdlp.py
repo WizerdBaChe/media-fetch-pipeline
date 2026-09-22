@@ -627,9 +627,10 @@ def manifest_from_dump(
         sidecars += chosen_captions
         if not chosen_captions:
             # Q2: "no track was chosen" has two causes the payload alone
-            # cannot tell apart -- nobody made one, or the automatic list
-            # came back empty from an extractor that answers a refusal the
-            # same way (P-84). Computed from the SHAPE of this payload, never
+            # cannot tell apart -- nobody made one, or the extractor emptied
+            # the list for a video that does have captions (P-84, P-95:
+            # measured both ways on one video within one day). Computed from
+            # the SHAPE of this payload, never
             # from its size: `empty_automatic_is_trustworthy` is the same
             # test `captions.py` uses for the read-time version of this call.
             _, auto, _ = tracks_of(payload)
@@ -863,8 +864,11 @@ class YtDlpAdapter(PlatformAdapter):
         """Q2: ask exactly once more when captions came back unconfirmed.
 
         "None" and "could not ask" are indistinguishable in a single payload
-        from an extractor in `SILENT_ON_REFUSAL_EXTRACTORS` (P-84), so one
-        re-read is the whole of what this can do about it -- never a loop,
+        from an extractor in `UNTRUSTWORTHY_EMPTY_CAPTIONS_EXTRACTORS` (P-84),
+        so one re-read is the whole of what this can do about it -- and P-95
+        measured the limit of even that: in the one episode read with raw
+        pages, every player client was told the same empty thing, so a second
+        read inside the same episode cannot differ. Never a loop,
         because the measured shape is empty reads arriving in RUNS, and more
         of the same read is more of what may be being refused.
 

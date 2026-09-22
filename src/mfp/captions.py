@@ -47,7 +47,7 @@ __all__ = [
     "AUTO_CAPTION_KIND",
     "CAPTION_KIND",
     "CAPTION_KINDS",
-    "SILENT_ON_REFUSAL_EXTRACTORS",
+    "UNTRUSTWORTHY_EMPTY_CAPTIONS_EXTRACTORS",
     "ORIGINAL_LANG",
     "SAVEABLE_FORMATS",
     "CaptionFile",
@@ -215,7 +215,7 @@ def video_metadata(
     build could do it all day.
 
     Paying for the read is right on D-34's terms alone. It is NOT claimed as
-    the fix for `SILENT_ON_REFUSAL_EXTRACTORS` -- a rested first read still
+    the fix for `UNTRUSTWORTHY_EMPTY_CAPTIONS_EXTRACTORS` -- a rested first read still
     came back empty, so whatever that is, unpaced probing is not all of it.
 
     The governor is per-process but its window is a FILE, so a CLI verb
@@ -307,7 +307,9 @@ def _default_governor():
 #: other client this build could reach exited 1.
 #:
 #: **The cause is not established, and this constant does not claim one.**
-#: The strongest lead is a rate limit: asking the same platform for the FILE
+#: (2026-09-23: the rate-limit lead below is refuted for the one episode
+#: measured with raw pages -- see the Z22 paragraph further down.)
+#: The lead at the time was a rate limit: asking the same platform for the FILE
 #: (`--write-auto-subs`) returned an explicit `HTTP Error 429` on 4 of 8
 #: attempts in the same session, and yt-dlp surfaces the 429 there while
 #: reporting nothing on `-J`. What is NOT shown is that any particular empty
@@ -319,17 +321,28 @@ def _default_governor():
 #: empty list and a genuine absence are indistinguishable, so the product
 #: must not report one as the other (P-72).
 #:
-#: **The two lists do not fail together, and that is the one structural
-#: thing measured about this.** On the reads where `automatic_captions`
-#: collapsed to 0, `subtitles` was unchanged -- 1 written track, every time.
-#: So an empty WRITTEN list is not covered by this constant: the product may
-#: say 「nobody uploaded a caption track」 and must not say 「this video has
-#: no automatic captions」 in the same breath. That asymmetry is what lets
-#: the two answers be reported separately instead of merged into one
-#: 「no captions」. It is one video's worth of evidence and it is not proof
-#: that a written list can never be dropped; if one ever is observed empty
-#: on a video known to have one, this set grows a second member and the
-#: message splits again.
+#: **The two lists DO fail together; the asymmetry once claimed here was the
+#: instrument's.** The "1 written track" that survived every empty read was
+#: `live_chat` -- the replay of this premiere's chat, which yt-dlp adds
+#: whatever the player response says and `_caption_tracks_only` drops. Both
+#: real lists come out of ONE renderer (`captions.playerCaptionsTracklist
+#: Renderer`), so when it is absent, written and automatic vanish at once.
+#: An empty written list is therefore no more trustworthy than an empty
+#: automatic one on this extractor.
+#:
+#: **Where the empty list comes from (measured 2026-09-23, Phase Z22, P-95).**
+#: Kept raw pages with `--write-pages -v` on yt-dlp 2026.08.19: every player
+#: response YouTube sent for `cAeszOrPGRo` -- visionos, web, tv, web_safari,
+#: mweb (android_vr UNPLAYABLE) -- was `playabilityStatus: OK` with
+#: `streamingData` and NO `captions` key, and so was the page a real
+#: logged-out Chrome loaded. In the same minute, from the same address, the
+#: control `2UpQbeAZuqA` carried its ASR track and 156 translation languages.
+#: So the empty list is YouTube's own answer about THIS video, not a yt-dlp
+#: parse, not a player-client choice, not a missing PO Token (yt-dlp's
+#: subtitle-skip debug line was absent), and not an address-wide refusal.
+#: WHY YouTube withholds the renderer is not observable from outside; the
+#: same video carried 158 tracks on 2026-09-09, so the answer can change and
+#: an empty read still cannot be reported as 「none」.
 #:
 #: **Not reproducible on demand.** 2026-09-09, later the same day: 24 reads
 #: of the same video returned `written=1, auto=158` every single time --
@@ -351,7 +364,7 @@ def _default_governor():
 #: review-when: yt-dlp starts surfacing a cause on `-J` (a non-zero exit, a
 #: warning, a distinguishable field), at which point the read can be
 #: classified structurally and this set stops being needed.
-SILENT_ON_REFUSAL_EXTRACTORS: frozenset[str] = frozenset({"youtube"})
+UNTRUSTWORTHY_EMPTY_CAPTIONS_EXTRACTORS: frozenset[str] = frozenset({"youtube"})
 
 
 def empty_automatic_is_trustworthy(data: dict) -> bool:
@@ -359,10 +372,10 @@ def empty_automatic_is_trustworthy(data: dict) -> bool:
 
     P-72, at the one place the answer is formed: a missing list is an ERROR,
     not an empty one, and 「沒有」 and 「問不到」 are different things to be
-    told. On an extractor in `SILENT_ON_REFUSAL_EXTRACTORS` the two are
+    told. On an extractor in `UNTRUSTWORTHY_EMPTY_CAPTIONS_EXTRACTORS` the two are
     indistinguishable in the payload, so the honest answer is the second one.
     """
-    return str(data.get("extractor") or "").lower() not in SILENT_ON_REFUSAL_EXTRACTORS
+    return str(data.get("extractor") or "").lower() not in UNTRUSTWORTHY_EMPTY_CAPTIONS_EXTRACTORS
 
 
 def caption_tracks(url: str, *, executable: str | None = None

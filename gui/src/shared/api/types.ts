@@ -84,8 +84,9 @@ export interface Task {
   partPath: string | null;
   pathDegradation: "L0" | "L1";
   /** True only when captions were asked for, no track was chosen, and the
-   *  automatic list came back empty twice from a platform that answers a
-   *  refusal the same way as "none" (Q2, D-155's shape once more) -- so
+   *  automatic list came back empty twice from a platform that empties the
+   *  list for videos that do have captions (Q2, D-155's shape once more;
+   *  measured both ways on one video in P-84/P-95) -- so
    *  "no captions" and "could not ask" are indistinguishable. Absent on an
    *  older sidecar, which must read as "nothing to say" (P-72), never as
    *  a silent `true` or `false`. */
