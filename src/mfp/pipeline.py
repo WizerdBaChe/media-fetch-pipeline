@@ -108,6 +108,19 @@ def build_adapter(
     from mfp.adapters.instagram.adapter import PLATFORMS as BROWSER_PLATFORMS
     from mfp.adapters.ytdlp import PLATFORMS as YTDLP_PLATFORMS
 
+    if platform == "x":
+        from mfp.adapters.instagram.cdp import connect, http_get
+        from mfp.adapters.x_adapter import XAdapter
+
+        # yt-dlp first, the browser only for a post it found no video in and
+        # only for a caller that asked for the words (`read_post_text`).
+        return XAdapter(
+            state_dir=state_dir,
+            connector=connect,
+            http_get=http_get,
+            sessions=sessions,  # type: ignore[arg-type]
+        )
+
     if platform in BROWSER_PLATFORMS:
         from mfp.adapters.instagram.adapter import InstagramAdapter
         from mfp.adapters.instagram.cdp import connect, http_get
@@ -169,6 +182,7 @@ def build_context(
     audio_language: str | None = None,
     caption_language: str | None = None,
     post_dir: Path | None = None,
+    read_post_text: bool = False,
 ) -> FetchContext:
     return FetchContext(
         budget=governor if governor is not None else shared_governor(config),
@@ -180,6 +194,7 @@ def build_context(
         audio_language=audio_language,
         caption_language=caption_language,
         post_dir=post_dir,
+        read_post_text=read_post_text,
     )
 
 

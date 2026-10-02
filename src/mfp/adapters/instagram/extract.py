@@ -975,12 +975,7 @@ def post_metadata(html: str) -> PostMetadata:
     if isinstance(owner, dict) and isinstance(owner.get("username"), str):
         author = owner["username"]
 
-    caption = None
-    raw_caption = node.get("caption")
-    if isinstance(raw_caption, dict) and isinstance(raw_caption.get("text"), str):
-        caption = raw_caption["text"]
-    elif isinstance(raw_caption, str):
-        caption = raw_caption
+    caption = _caption_text(node)
 
     timestamp = None
     taken_at = _int_or_none(node.get("taken_at"))
@@ -1074,11 +1069,44 @@ def _author_of(node: dict[str, Any]) -> str | None:
     return owner.get("username") if isinstance(owner, dict) else None
 
 
+def _attachment_text(node: dict[str, Any]) -> str | None:
+    """The long-text attachment a Threads post can carry beside its caption.
+
+    Threads caps the caption and lets the author attach a longer block of
+    text, rendered under the caption behind 「閱讀全文」. It is NOT in
+    `caption.text`: it lives in `text_post_app_info.snippet_attachment_info`
+    as its own fragment list. Measured 2026-10-01 (`Dd6fBkOGQVr`, the
+    BAJ5zRbxRd fixture): caption 20 chars ending 「指令:」, attachment 2,424
+    chars -- the prompt the caption announces. Reading the caption alone
+    handed back the announcement and silently dropped the thing announced.
+    """
+    info = node.get("text_post_app_info")
+    snippet = info.get("snippet_attachment_info") if isinstance(info, dict) else None
+    fragments = (
+        (snippet.get("text_fragments") or {}).get("fragments")
+        if isinstance(snippet, dict)
+        else None
+    )
+    if not isinstance(fragments, list):
+        return None
+    text = "".join(
+        fragment["plaintext"]
+        for fragment in fragments
+        if isinstance(fragment, dict) and isinstance(fragment.get("plaintext"), str)
+    )
+    return text or None
+
+
 def _caption_text(node: dict[str, Any]) -> str | None:
+    """Everything the author wrote in this post: caption, then attachment."""
     caption = node.get("caption")
     if isinstance(caption, dict) and isinstance(caption.get("text"), str):
-        return caption["text"]
-    return caption if isinstance(caption, str) else None
+        caption = caption["text"]
+    elif not isinstance(caption, str):
+        caption = None
+    attachment = _attachment_text(node)
+    parts = [part for part in (caption, attachment) if part]
+    return "\n\n".join(parts) if parts else caption
 
 
 def author_chain(html: str) -> list[ChainNode]:

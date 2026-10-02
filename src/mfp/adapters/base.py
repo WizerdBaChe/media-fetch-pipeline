@@ -82,6 +82,13 @@ class FetchContext:
     #: None keeps the download-tree layout, which stays correct for `fetch`
     #: -- and `fetch` is the only verb that should ever leave it None.
     post_dir: Path | None = None
+    #: The caller wants the post's WORDS even when it has no media -- `brief`
+    #: and nothing else. It exists because reading the words of an X text post
+    #: costs a browser launch and a governor slot, and `fetch` on that post
+    #: has no use for either: its answer is `no_media_in_post` whatever the
+    #: page says. Off, an adapter that would otherwise open a page to read
+    #: text does not.
+    read_post_text: bool = False
 
 
 class PlatformAdapter(ABC):

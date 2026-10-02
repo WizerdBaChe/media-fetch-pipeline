@@ -50,6 +50,11 @@ REDACTED_KEYS: tuple[str, ...] = (
     "biography",
     "caption",
     "text",
+    # Threads' fragment text. A caption's fragments sit beside `caption.text`
+    # and so were covered by accident; a long-text attachment
+    # (`snippet_attachment_info`) has ONLY fragments, and 2,436 of its 2,446
+    # characters survived into the first fixture that had one (2026-10-01).
+    "plaintext",
     "accessibility_caption",
     "alt_text",
     "profile_pic_url",

@@ -94,8 +94,8 @@ if ($SkipSidecar) {
     Add-Result '2 sidecar' 'SKIP' '-SkipSidecar requested'
 } elseif (-not $pyinstallerPresent) {
     Write-Skip 'PyInstaller is not installed in .venv'
-    Write-Host '       Install with:  .venv\Scripts\python.exe -m pip install pyinstaller' -ForegroundColor DarkGray
-    Add-Result '2 sidecar' 'SKIP' 'PyInstaller not installed (G6 not started)'
+    Write-Host '       Install with:  .venv\Scripts\python.exe -m pip install -e ".[dev,build]"' -ForegroundColor DarkGray
+    Add-Result '2 sidecar' 'SKIP' 'PyInstaller not found at .venv\Scripts\pyinstaller.exe (install the build extra)'
 } else {
     New-Item -ItemType Directory -Force -Path $sidecarDist, $pyiWork, $pyiStage | Out-Null
     Push-Location $root

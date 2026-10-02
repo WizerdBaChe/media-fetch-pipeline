@@ -907,7 +907,7 @@ def fetch_package(
     except ValueError as exc:
         raise UsageError(str(exc)) from exc
 
-    ctx = build_context(config, output_root=out)
+    ctx = build_context(config, output_root=out, read_post_text=True)
     ctx.on_progress = on_progress
     out_root = ctx.output_root
 

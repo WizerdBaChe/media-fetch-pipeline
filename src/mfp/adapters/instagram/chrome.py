@@ -53,6 +53,10 @@ PAGE_LOAD_TIMEOUT_S = 30.0
 #: Seconds to wait for any single CDP command to answer.
 COMMAND_TIMEOUT_S = 10.0
 
+#: A `settle_js` is a bounded wait inside the page, not a command: the X
+#: script's own ceiling is 9.5 s, so this leaves room for the round trip.
+SETTLE_TIMEOUT_S = 15.0
+
 #: Written next to the queue so an abnormal exit can be reaped next start.
 PID_FILE_NAME = "chrome.pid"
 
@@ -284,6 +288,15 @@ def terminate(process: ChromeProcess, *, grace_s: float = 5.0) -> None:
 # --- session -----------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class PageRead:
+    """What `ChromeSession.read_page` returns."""
+
+    html: str
+    #: The string a `settle_js` returned, or None when none was given.
+    settle_result: str | None = None
+
+
 @dataclass
 class ChromeSession:
     """A launched browser plus its CDP connection.
@@ -307,12 +320,41 @@ class ChromeSession:
         script tags at load, with zero `<video>` elements, so waiting longer
         buys nothing and costs seconds per post.
         """
+        return self.read_page(url).html
+
+    def read_page(self, url: str, *, settle_js: str | None = None) -> "PageRead":
+        """`fetch_html`, plus an optional script run in the page before the read.
+
+        For a page that is a client-rendered app (X): `loadEventFired` fires
+        before the posts exist, and a clipped post only becomes whole when its
+        own control is clicked. `settle_js` is an async expression evaluated
+        with `awaitPromise` that waits for that and returns a string, which
+        rides back as `PageRead.settle_result`. It gets `SETTLE_TIMEOUT_S`
+        rather than the ordinary command timeout, because it is a wait.
+
+        With `settle_js=None` the CDP call sequence is exactly the one
+        `fetch_html` always made.
+        """
         target = self._create_target()
         try:
             session_id = self._attach(target)
             self._send("Page.enable", session_id=session_id)
             self._send("Page.navigate", {"url": url}, session_id=session_id)
             self._wait_for_load()
+            settled: str | None = None
+            if settle_js is not None:
+                settled = _unwrap_evaluate(
+                    self._send(
+                        "Runtime.evaluate",
+                        {
+                            "expression": settle_js,
+                            "returnByValue": True,
+                            "awaitPromise": True,
+                        },
+                        session_id=session_id,
+                        timeout=SETTLE_TIMEOUT_S,
+                    )
+                )
             result = self._send(
                 "Runtime.evaluate",
                 {
@@ -321,7 +363,7 @@ class ChromeSession:
                 },
                 session_id=session_id,
             )
-            return _unwrap_evaluate(result)
+            return PageRead(html=_unwrap_evaluate(result), settle_result=settled)
         finally:
             self._close_target(target)
 
@@ -333,10 +375,14 @@ class ChromeSession:
         params: dict[str, Any] | None = None,
         *,
         session_id: str | None = None,
+        timeout: float | None = None,
     ) -> dict[str, Any]:
         try:
             return self.connection.send(
-                method, params, session_id=session_id, timeout=self.command_timeout_s
+                method,
+                params,
+                session_id=session_id,
+                timeout=self.command_timeout_s if timeout is None else timeout,
             )
         except CdpTimeoutError:
             raise

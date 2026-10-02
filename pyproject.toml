@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "media-fetch-pipeline"
-version = "2.0.3"
+version = "2.1.0"
 description = "Local media fetch pipeline: quality policy, fetch budget governor, naming/organizer, platform adapters."
 requires-python = ">=3.12"
 dependencies = [
@@ -26,6 +26,12 @@ dependencies = [
 dev = [
     "pytest",
     "pytest-cov",
+]
+# The sidecar build (scripts/build-all.ps1 stage 2). Declared so a rebuilt
+# .venv cannot silently lose it: after P-96's `pip install -e ".[dev]"`
+# recovery, every build was PARTIAL and shipped the previous sidecar.
+build = [
+    "pyinstaller==6.22.1",
 ]
 
 [project.scripts]
