@@ -830,9 +830,12 @@ class YtDlpAdapter(PlatformAdapter):
             # they classify as `unknown`, which is where they belong.
             kind = classify_failure(exc.stderr or str(exc))
             if kind == "no_media":
+                # Only what yt-dlp said. Nothing here has seen the post: on X
+                # `fetch`/`probe` never open the page, so a text-only post, a
+                # photo-only one and one shown only to logged-in viewers all
+                # arrive as this same line (P-88).
                 raise NoMediaInPost(
-                    f"{url} was read successfully and contains nothing this tool can "
-                    f"download: {exc}",
+                    f"yt-dlp found no downloadable video at {url}: {exc}",
                     url=url,
                 ) from exc
             if kind == "rate_limited":

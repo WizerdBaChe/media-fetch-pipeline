@@ -165,7 +165,14 @@ class UpstreamUnreachable(MfpError):
 
 
 class NoMediaInPost(MfpError):
-    """The post was found and read, and it simply has nothing to download.
+    """There is nothing to download here, and trying again will not change that.
+
+    Whether the post was READ depends on who raised it. Instagram, Threads and
+    the X browser rung raise it after locating the post, so it holds nothing.
+    The yt-dlp path raises it on the extractor's word alone and never saw the
+    post: on X that line is the same for a text-only post, a photo-only post
+    and one the platform shows only to logged-in viewers (P-88), so its message
+    says what yt-dlp said and nothing more.
 
     Split out of `upstream_structure_change` on 2026-08-19 (O-10). That code
     means "the site changed and our parser is now wrong", and SKILL.md tells

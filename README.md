@@ -27,6 +27,9 @@
 - **任何要登入才看得到的東西都不行**——私人帳號、動態牆、限時動態、追蹤中的
   內容。這個工具只能看到「一個沒登入的瀏覽器」看得到的東西，而且是刻意設計成
   這樣的，不是還沒做。
+- **X 上平台只給登入者看的貼文**——被標成敏感內容的貼文是常見的一類。這個工具
+  不登入，遇到時只會得到「找不到可下載的影片」或「頁面上沒有這則貼文」，沒有
+  繞過的選項。
 - **不是整批下載器**。一次處理一則貼文，不抓整個帳號或播放清單。
 - **不做逐字稿，也不做翻譯**。影片會完整存下來，但影片裡說了什麼，要用別的工具
   處理。這兩項功能在 2026-09-16 從這個工具移除。
@@ -106,6 +109,7 @@ Chrome 是唯一一個程式不會幫你裝的——幫人裝瀏覽器不是一�
 | 限制 | 什麼情況 | 你會看到 | 狀態與處置 |
 |---|---|---|---|
 | 只在 Windows 11 測過 | 其他作業系統 | 未知 | 未測 |
+| X 的貼文未登入時看不到媒體 | 平台把該貼文限制給登入者（被標成敏感內容是常見原因之一） | 分析失敗，代碼 `no_media_in_post`（找不到可下載的影片），或 `upstream_structure_change` 並註明頁面上沒有這則貼文 | 無法處置，這是設計：不登入。程式分辨不出這與「貼文已刪除」「真的沒有影片」的差別，所以訊息不會替你猜原因 |
 | 平台改版可能讓分析失敗 | 平台改了網頁結構 | 分析失敗並附錯誤代碼 | 更新 `yt-dlp` 通常可以解決影片類的問題 |
 
 ## 遇到問題
@@ -181,6 +185,27 @@ flowchart LR
   tools --> cdn
   cdn --> out
 ```
+
+### 元件對應到哪個路徑
+
+上面那張圖畫的是元件，這張表把每個元件接到原始碼的位置。路徑都是相對於倉庫根目錄。
+
+| 元件 | 路徑 | 負責什麼 |
+|---|---|---|
+| 命令列 `mfp.exe` | `src/mfp/cli.py` | 每個 verb 的參數與進入點；`stdout`／`stderr` 的分工在這裡落實 |
+| 流程編排 | `src/mfp/pipeline.py` | 網址 → manifest → 檔案；命令列與佇列共用 |
+| 平台 adapter | `src/mfp/adapters/` | `instagram/`（含 Threads，用真 Chrome 讀頁面）、`x_adapter.py`＋`x_extract.py`（X）、`ytdlp.py`（交給 yt-dlp）、`base.py`（共同契約） |
+| 傳輸與畫質挑選 | `src/mfp/download.py`、`src/mfp/policy.py` | 從 CDN 拉檔；依 `--policy` 挑畫質 |
+| 節流 | `src/mfp/budget.py` | 每小時讀頁面的配額，狀態存檔，重開程式不歸零 |
+| 任務佇列與狀態機 | `src/mfp/queue.py` | 合法轉移表只有這一份（`LEGAL_TRANSITIONS`） |
+| sidecar（本機 HTTP 服務） | `src/mfp/sidecar.py`、`src/mfp/serve.py`、`src/mfp/server/` | 桌面應用呼叫的 `/v1` 介面，只綁 loopback |
+| 外部工具管理 | `src/mfp/toolchain.py`、`src/mfp/doctor.py`、`src/mfp/mediatool.py` | yt-dlp／ffmpeg 的來源、下載驗證、檢查 |
+| 錯誤分類與結束碼 | `src/mfp/errors.py` | 錯誤代碼與結束碼的對照 |
+| 輸出路徑與分析存檔 | `src/mfp/naming.py`、`src/mfp/runs.py`、`src/mfp/index.py` | 檔名清理、post／run 資料夾、「分析過了沒」 |
+| 桌面介面（GUI） | `gui/src/` | React；依 `app／pages／widgets／features／entities／shared` 分層 |
+| 桌面外殼 | `electron/` | Electron 主程序，負責起 sidecar 與開視窗 |
+| 給 AI 助手的契約 | `skill/SKILL.md` | `mfp agent-guide` 印出的就是這份 |
+| 建置與發版 | `scripts/`、`docs/DEVELOPING.md` | `build-all.ps1` 等 |
 
 三條邊界不變式，圖上看不到但一直成立：
 
@@ -280,6 +305,12 @@ GUI 不自己算目標狀態——它只決定要顯示哪些動作，由伺服�
 **這個公開倉庫只放主程式。** 測試套件、人工驗收清單、產品規格（PSM）、以及
 逐輪的決策與踩坑記錄（`D-nn` / `P-nn`）留在開發樹裡，不隨這裡發布——它們有
 一部分是第三方的資料與內部判斷過程。上面引用到的測試數字都出自那棵樹。
+
+**設計規則與踩過的陷阱，主要寫在各程式檔開頭的說明（docstring）裡**——
+例如 `src/mfp/adapters/instagram/extract.py`、`x_extract.py`、`budget.py`、
+`errors.py`。要深入哪個元件，先照上面的對照表找到檔案，再讀它的開頭。那些說明
+裡引用的 PSM 章節與 `D-nn`／`P-nn` 編號，指向的是不隨這裡發布的開發樹文件，
+在這裡查不到。
 
 ## 授權
 

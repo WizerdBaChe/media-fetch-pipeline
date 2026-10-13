@@ -125,8 +125,9 @@ ERROR_STATUS: dict[str, int] = {
     # timeout in the literal sense, and the one status that says retry later
     # without also saying something here is wrong.
     "upstream_unreachable": 504,
-    # 422, deliberately not 502: the post was read successfully and simply
-    # has nothing to download. Nothing upstream is broken, so it must not
+    # 422, deliberately not 502: there is simply nothing to download (the
+    # post may or may not have been read -- see `NoMediaInPost`). Nothing
+    # upstream is broken, so it must not
     # share a status with the code that means our parser is now wrong.
     "no_media_in_post": 422,
     # 422 again, not 502 (P-94): the platform answered cleanly, with its own
